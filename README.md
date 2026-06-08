@@ -22,8 +22,9 @@ kaminoa-api/
 └── fitur/
     ├── ai/
     │   └── blackboxai.js
-    └── tools/
-        └── shorturl.js
+    ├── tools/
+    │   └── shorturl.js
+    └── (tambah folder/file baru sesuai kategori)
 ```
 
 ## Menambah Endpoint Baru
@@ -105,6 +106,9 @@ Setelah file dibuat, **restart server** — endpoint otomatis muncul di docs tan
 | Method | Path | Auth | Deskripsi |
 |--------|------|------|-----------|
 | GET | `/ai/blackbox` | ✓ | Chat dengan Blackbox AI |
+| GET | `/ai/copilot` | — | Chat dengan Microsoft Copilot |
+| GET | `/search/pinterest` | — | Cari gambar di Pinterest |
+| GET | `/search/pinterest2` | — | Cari gambar Pinterest (Advanced, CSRF auth) |
 | GET | `/tools/shorturl` | — | Persingkat URL (tinyurl, spoome) |
 
 ## API Key
