@@ -20,6 +20,22 @@ const providers = {
             }
         })
         return res.data.short_url
+    },
+
+    referis: async (url) => {
+        if (!url.startsWith("https://")) throw new Error("URL harus diawali https://")
+        const { data } = await axios.post("https://refer.is/_root.data?index",
+            new URLSearchParams({ source: "homepage", url, action: "shorten" }).toString(),
+            {
+                headers: {
+                    "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
+                    origin: "https://refer.is",
+                    referer: "https://refer.is/",
+                    "user-agent": ua
+                }
+            }
+        )
+        return data[9]
     }
 }
 
@@ -44,7 +60,7 @@ export default {
                 in: "query",
                 required: false,
                 description: "Provider shortener yang digunakan",
-                schema: { type: "string", enum: ["tinyurl", "spoome"], default: "tinyurl" }
+                schema: { type: "string", enum: ["tinyurl", "spoome", "referis"], default: "tinyurl" }
             },
             {
                 name: "custom",
