@@ -494,7 +494,8 @@ function showResp(status, ms, data) {
   const cls = status === 0 ? 's0xx' : status >= 500 ? 's5xx' : status >= 400 ? 's4xx' : 's2xx'
   const label = status === 0 ? 'Error' : status
   const body = typeof data === 'string' ? data : JSON.stringify(data, null, 2)
-  document.getElementById('resp-area').innerHTML = `
+  const area = document.getElementById('resp-area')
+  area.innerHTML = `
     <div class="sec">Response</div>
     <div class="resp-box">
       <div class="resp-head">
@@ -504,6 +505,7 @@ function showResp(status, ms, data) {
       <div class="resp-body">${colorize(body)}</div>
     </div>
   `
+  area.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 function colorize(str) {
