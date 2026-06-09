@@ -101,16 +101,6 @@ export default {
 
 Setelah file dibuat, **restart server** — endpoint otomatis muncul di docs tanpa perlu mengubah file lain.
 
-## Endpoint Tersedia
-
-| Method | Path | Auth | Deskripsi |
-|--------|------|------|-----------|
-| GET | `/ai/blackbox` | ✓ | Chat dengan Blackbox AI |
-| GET | `/ai/copilot` | — | Chat dengan Microsoft Copilot |
-| GET | `/search/pinterest` | — | Cari gambar di Pinterest |
-| GET | `/search/pinterest2` | — | Cari gambar Pinterest (Advanced, CSRF auth) |
-| GET | `/tools/shorturl` | — | Persingkat URL (tinyurl, spoome) |
-
 ## API Key
 
 Setiap endpoint bisa dikonfigurasi butuh API key atau tidak via field `auth`:
