@@ -9,8 +9,8 @@ npm install
 npm start
 ```
 
-Server berjalan di `http://localhost:3000`  
-Dokumentasi di `http://localhost:3000/docs`
+Server berjalan di `http://localhost:47291`  
+Dokumentasi di `http://localhost:47291/docs`
 
 ## Struktur Folder
 
@@ -117,7 +117,7 @@ Set `API_KEY` di file `.env` sebelum menjalankan server. Jika tidak di-set, serv
 
 Request dengan auth:
 ```bash
-curl "http://localhost:3000/endpoint" -H "x-api-key: your_key"
+curl "http://localhost:47291/endpoint" -H "x-api-key: your_key"
 ```
 
 Di halaman docs, input API key muncul di header (hanya jika ada endpoint yang butuh auth).
@@ -126,11 +126,11 @@ Di halaman docs, input API key muncul di header (hanya jika ada endpoint yang bu
 
 | Variabel | Default | Keterangan |
 |----------|---------|------------|
-| `PORT` | `3000` | Port server |
+| `PORT` | `47291` | Port server |
 
 Contoh `.env`:
 
 ```env
 API_KEY=ganti_dengan_key_kamu
-PORT=3000
+PORT=47291
 ```

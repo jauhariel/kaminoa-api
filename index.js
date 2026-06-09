@@ -82,7 +82,7 @@ app.get("/openapi.json", (req, res) => res.json(buildOpenAPI(req)))
 app.get("/docs", (req, res) => res.sendFile(path.join(__dirname, "public/docs.html")))
 app.get("/", (req, res) => res.redirect("/docs"))
 
-const PORT = process.env.PORT || 3000
+const PORT = process.env.PORT || 47291
 app.listen(PORT, () => {
     console.log(`\nKaminoa API  →  http://localhost:${PORT}`)
     console.log(`Docs         →  http://localhost:${PORT}/docs\n`)

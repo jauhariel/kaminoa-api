@@ -100,7 +100,7 @@ export default {
     route: {
         method: "get",
         path: "/ai/blackbox",
-        auth: true,
+        auth: false,
         tags: ["AI"],
         summary: "Chat dengan Blackbox AI",
         description: "Kirim prompt ke Blackbox AI dan dapatkan respons teks.",
