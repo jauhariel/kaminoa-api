@@ -1,90 +1,112 @@
 import https from 'https'
-import querystring from 'querystring'
 
-function post(url, data) {
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+const BASE = 'https://id-y2mate.com/y2dl'
+
+// Profil audio yang didukung backend y2dl (termasuk lossless FLAC/WAV/ALAC).
+const AUDIO = {
+    mp3: { format: 'mp3', audioBitrate: '320', kind: 'mp3' },
+    'mp3-320': { format: 'mp3', audioBitrate: '320', kind: 'mp3' },
+    'mp3-192': { format: 'mp3', audioBitrate: '192', kind: 'mp3' },
+    'mp3-128': { format: 'mp3', audioBitrate: '128', kind: 'mp3' },
+    'mp3-64': { format: 'mp3', audioBitrate: '64', kind: 'mp3' },
+    m4a: { format: 'm4a', audioBitrate: 'best', kind: 'm4a' },
+    wav: { format: 'wav', audioBitrate: 'best', kind: 'wav' },
+    flac: { format: 'flac', audioBitrate: 'best', kind: 'flac' },
+    alac: { format: 'alac', audioBitrate: 'best', kind: 'alac' },
+    aac: { format: 'aac', audioBitrate: '192', kind: 'aac' },
+    ogg: { format: 'ogg', audioBitrate: '192', kind: 'ogg' },
+    opus: { format: 'opus', audioBitrate: '192', kind: 'opus' },
+}
+const VIDEO_QUALITIES = ['2160', '1440', '1080', '720', '480', '360', '240', '144']
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+function request(method, path, data) {
     return new Promise((resolve, reject) => {
-        const body = querystring.stringify(data)
-        const parsed = new URL(url)
-        const options = {
-            hostname: parsed.hostname,
-            path: parsed.pathname + parsed.search,
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Content-Length': Buffer.byteLength(body),
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-                'Referer': 'https://id-y2mate.com/',
-                'Origin': 'https://id-y2mate.com',
-            },
+        const body = data ? JSON.stringify(data) : null
+        const parsed = new URL(BASE + path)
+        const headers = { 'User-Agent': UA, Referer: 'https://id-y2mate.com/', Origin: 'https://id-y2mate.com', Accept: 'application/json' }
+        if (body) {
+            headers['Content-Type'] = 'application/json'
+            headers['Content-Length'] = Buffer.byteLength(body)
         }
-        const req = https.request(options, (res) => {
+        const req = https.request({ hostname: parsed.hostname, path: parsed.pathname + parsed.search, method, headers }, (res) => {
             let raw = ''
-            res.on('data', (chunk) => (raw += chunk))
+            res.on('data', (c) => (raw += c))
             res.on('end', () => {
-                try { resolve(JSON.parse(raw)) } catch { resolve(raw) }
+                try { resolve({ status: res.statusCode, body: JSON.parse(raw) }) } catch { resolve({ status: res.statusCode, body: raw }) }
             })
         })
         req.on('error', reject)
-        req.write(body)
+        if (body) req.write(body)
         req.end()
     })
 }
 
-async function analyze(youtubeUrl) {
-    const data = await post('https://id-y2mate.com/mates/analyzeV2/ajax', {
-        k_query: youtubeUrl,
-        k_page: 'youtube',
-        hl: 'id',
-        q_auto: 1,
-    })
-    if (!data || data.status !== 'ok') throw new Error(`Analyze gagal: ${JSON.stringify(data)}`)
-    return data
-}
-
-function sleep(ms) {
-    return new Promise((r) => setTimeout(r, ms))
-}
-
-async function convert(vid, key, retries = 20) {
-    for (let i = 0; i < retries; i++) {
-        const data = await post('https://id-y2mate.com/mates/convertV2/index', { vid, k: key })
-        if (!data || data.status !== 'ok') throw new Error(`Convert gagal: ${JSON.stringify(data)}`)
-        if (data.c_status === 'CONVERTED' && data.dlink) return data
-        if (data.c_status === 'FAILED') throw new Error('Convert gagal di sisi server y2mate')
-        await sleep(2500)
+async function getInfo(url) {
+    const { body } = await request('POST', '/info', { url })
+    if (!body || body.status !== 'ok' || !body.video) {
+        const err = new Error(body?.detail || 'Video tidak ditemukan atau URL tidak valid')
+        err.code = 400
+        throw err
     }
-    throw new Error('Convert timeout: link tidak tersedia setelah beberapa percobaan')
+    return body
 }
 
-function parseLinks(result) {
-    const links = []
-    for (const [type, formats] of Object.entries(result.links || {})) {
-        for (const [, info] of Object.entries(formats)) {
-            if (info.k) links.push({ type, quality: info.q, key: info.k, size: info.size || '?' })
-        }
+async function startConvert(url, mode, profile, videoQuality) {
+    const payload = mode === 'video'
+        ? { url, downloadMode: 'video', format: 'mp4', audioBitrate: 'best', profile: { kind: 'mp4' }, videoQuality }
+        : { url, downloadMode: 'audio', format: profile.format, audioBitrate: profile.audioBitrate, profile: { kind: profile.kind } }
+
+    const { body } = await request('POST', '/download', payload)
+    if (body?.error) {
+        const err = new Error(body.detail || body.error)
+        err.code = 400
+        throw err
     }
-    return links
+    if (body?.url) return body
+    const id = body?.jobId
+    if (!id) throw new Error('Respon tidak terduga dari y2mate')
+    for (let i = 0; i < 24; i++) {
+        const { body: p } = await request('GET', `/progress/${id}?wait=10&_=${Date.now()}`)
+        if (p?.url) return p
+        if (p?.status === 'error' || p?.status === 'failed') throw new Error(p.error || 'Konversi gagal di server')
+        await sleep(1500)
+    }
+    throw new Error('Timeout: konversi belum selesai')
 }
 
-async function getDownloadLink(youtubeUrl, format = 'mp4', targetQuality = null) {
-    const result = await analyze(youtubeUrl)
-    const links = parseLinks(result)
-    const defaultQuality = format === 'mp3' ? '128kbps' : '360p'
-    const quality = targetQuality || defaultQuality
-    const target =
-        links.find((l) => l.type === format && l.quality === quality) ||
-        links.find((l) => l.type === format) ||
-        links[0]
-    if (!target) throw new Error('Tidak ada format yang tersedia')
-    const converted = await convert(result.vid, target.key)
+async function getDownloadLink(url, format, quality) {
+    const isVideo = format === 'mp4' || format === 'video'
+    const info = await getInfo(url)
+
+    let converted, finalQuality, finalFormat
+    if (isVideo) {
+        finalFormat = 'mp4'
+        finalQuality = VIDEO_QUALITIES.includes(String(quality)) ? String(quality) : '1080'
+        converted = await startConvert(url, 'video', null, finalQuality)
+    } else {
+        finalFormat = format
+        finalQuality = AUDIO[format].audioBitrate === 'best' ? 'best' : `${AUDIO[format].audioBitrate}kbps`
+        converted = await startConvert(url, 'audio', AUDIO[format])
+    }
+
+    const v = info.video
     return {
-        title: result.title,
-        vid: result.vid,
-        type: target.type,
-        quality: target.quality,
-        size: target.size,
-        downloadUrl: converted.dlink,
-        availableFormats: links.map((l) => ({ type: l.type, quality: l.quality, size: l.size })),
+        title: v.title,
+        videoId: v.videoId,
+        channel: v.channel || null,
+        thumbnail: v.thumbnailUrl || null,
+        type: isVideo ? 'video' : 'audio',
+        format: finalFormat,
+        quality: finalQuality,
+        downloadUrl: converted.url,
+        expiresAt: converted.expiresAt ? new Date(converted.expiresAt).toISOString() : null,
+        availableFormats: {
+            audio: Object.keys(AUDIO),
+            video: (info.formats?.video || []).map((f) => f.quality),
+        },
     }
 }
 
@@ -94,8 +116,8 @@ export default {
         path: '/downloader/y2mate',
         auth: false,
         tags: ['Downloader'],
-        summary: 'Download YouTube via y2mate',
-        description: 'Mengunduh video/audio YouTube menggunakan id-y2mate.com. Mendukung format mp4 dan mp3.',
+        summary: 'Download YouTube via y2mate (mp4 + audio HQ termasuk FLAC)',
+        description: 'Mengunduh video (hingga 4K) atau audio YouTube menggunakan id-y2mate.com. Audio mendukung FLAC, WAV, ALAC, MP3 320/192/128, M4A, AAC, OGG, Opus.',
         parameters: [
             {
                 name: 'url',
@@ -108,15 +130,15 @@ export default {
                 name: 'format',
                 in: 'query',
                 required: false,
-                description: 'Format unduhan: mp4 (default) atau mp3',
-                schema: { type: 'string', enum: ['mp4', 'mp3'], default: 'mp4' },
+                description: 'mp4 (video, default) atau audio: mp3 (=320), mp3-192, mp3-128, mp3-64, m4a, wav, flac, alac, aac, ogg, opus',
+                schema: { type: 'string', default: 'mp4', example: 'flac' },
             },
             {
                 name: 'quality',
                 in: 'query',
                 required: false,
-                description: 'Kualitas unduhan, misal: 360p, 720p, 128kbps. Default: 360p (mp4) atau 128kbps (mp3)',
-                schema: { type: 'string', example: '360p' },
+                description: 'Khusus video (format=mp4): 2160, 1440, 1080, 720, 480, 360, 240, 144. Default 1080',
+                schema: { type: 'string', example: '1080' },
             },
         ],
         responses: {
@@ -132,12 +154,15 @@ export default {
                                     type: 'object',
                                     properties: {
                                         title: { type: 'string' },
-                                        vid: { type: 'string' },
+                                        videoId: { type: 'string' },
+                                        channel: { type: 'string' },
+                                        thumbnail: { type: 'string' },
                                         type: { type: 'string' },
+                                        format: { type: 'string' },
                                         quality: { type: 'string' },
-                                        size: { type: 'string' },
                                         downloadUrl: { type: 'string' },
-                                        availableFormats: { type: 'array' },
+                                        expiresAt: { type: 'string' },
+                                        availableFormats: { type: 'object' },
                                     },
                                 },
                             },
@@ -161,14 +186,16 @@ export default {
         if (!url || !/^https?:\/\//i.test(url)) {
             return res.status(400).json({ ok: false, error: 'URL tidak valid' })
         }
-        if (!['mp4', 'mp3'].includes(format)) {
-            return res.status(400).json({ ok: false, error: 'Format harus mp4 atau mp3' })
+        const fmt = String(format).toLowerCase()
+        const isVideo = fmt === 'mp4' || fmt === 'video'
+        if (!isVideo && !AUDIO[fmt]) {
+            return res.status(400).json({ ok: false, error: `Format tidak valid. Pilihan audio: ${Object.keys(AUDIO).join(', ')}, atau mp4 untuk video` })
         }
         try {
-            const result = await getDownloadLink(url, format, quality || null)
+            const result = await getDownloadLink(url, fmt, quality)
             res.json({ ok: true, result })
         } catch (e) {
-            res.status(500).json({ ok: false, error: e.message })
+            res.status(e.code === 400 ? 400 : 500).json({ ok: false, error: e.message })
         }
     },
 }
