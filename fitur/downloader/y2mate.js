@@ -45,12 +45,13 @@ function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms))
 }
 
-async function convert(vid, key, retries = 5) {
+async function convert(vid, key, retries = 20) {
     for (let i = 0; i < retries; i++) {
         const data = await post('https://id-y2mate.com/mates/convertV2/index', { vid, k: key })
         if (!data || data.status !== 'ok') throw new Error(`Convert gagal: ${JSON.stringify(data)}`)
         if (data.c_status === 'CONVERTED' && data.dlink) return data
-        await sleep(2000)
+        if (data.c_status === 'FAILED') throw new Error('Convert gagal di sisi server y2mate')
+        await sleep(2500)
     }
     throw new Error('Convert timeout: link tidak tersedia setelah beberapa percobaan')
 }
