@@ -5,7 +5,7 @@ const BASE = 'https://id-y2mate.com/y2dl'
 
 // Profil audio yang didukung backend y2dl (termasuk lossless FLAC/WAV/ALAC).
 const AUDIO = {
-    mp3: { format: 'mp3', audioBitrate: '320', kind: 'mp3' },
+    mp3: { format: 'mp3', audioBitrate: '128', kind: 'mp3' },
     'mp3-320': { format: 'mp3', audioBitrate: '320', kind: 'mp3' },
     'mp3-192': { format: 'mp3', audioBitrate: '192', kind: 'mp3' },
     'mp3-128': { format: 'mp3', audioBitrate: '128', kind: 'mp3' },
@@ -84,7 +84,7 @@ async function getDownloadLink(url, format, quality) {
     let converted, finalQuality, finalFormat
     if (isVideo) {
         finalFormat = 'mp4'
-        finalQuality = VIDEO_QUALITIES.includes(String(quality)) ? String(quality) : '1080'
+        finalQuality = VIDEO_QUALITIES.includes(String(quality)) ? String(quality) : '720'
         converted = await startConvert(url, 'video', null, finalQuality)
     } else {
         finalFormat = format
@@ -130,14 +130,14 @@ export default {
                 name: 'format',
                 in: 'query',
                 required: false,
-                description: 'mp4 (video, default) atau audio: mp3 (=320), mp3-192, mp3-128, mp3-64, m4a, wav, flac, alac, aac, ogg, opus',
+                description: 'mp4 (video, default) atau audio: mp3 (=128), mp3-320, mp3-192, mp3-64, m4a, wav, flac, alac, aac, ogg, opus',
                 schema: { type: 'string', default: 'mp4', example: 'flac' },
             },
             {
                 name: 'quality',
                 in: 'query',
                 required: false,
-                description: 'Khusus video (format=mp4): 2160, 1440, 1080, 720, 480, 360, 240, 144. Default 1080',
+                description: 'Khusus video (format=mp4): 2160, 1440, 1080, 720, 480, 360, 240, 144. Default 720',
                 schema: { type: 'string', example: '1080' },
             },
         ],
