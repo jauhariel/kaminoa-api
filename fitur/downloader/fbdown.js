@@ -2,7 +2,11 @@ import axios from "axios"
 import * as cheerio from "cheerio"
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-const BASE = "https://fbdown.to"
+// Kedua situs ini kembar (template + backend snapcdn sama). Dipakai sebagai fallback.
+const PROVIDERS = [
+    { base: "https://fbdown.to", path: "/id" },
+    { base: "https://fbdownloader.to", path: "/en" },
+]
 
 function getVar(html, name) {
     return (html.match(new RegExp(name + '\\s*=\\s*"([^"]*)"')) || [])[1]
@@ -24,23 +28,23 @@ function decodeToken(downloadUrl) {
     }
 }
 
-async function fbdown(fbUrl) {
+async function fetchFromProvider({ base, path }, fbUrl) {
     // 1) ambil token bootstrap dari halaman
-    const { data: home } = await axios.get(`${BASE}/id`, { headers: { "user-agent": UA } })
+    const { data: home } = await axios.get(`${base}${path}`, { headers: { "user-agent": UA } })
     const k_token = getVar(home, "k_token")
     const k_exp = getVar(home, "k_exp")
     const k_page = getVar(home, "k_page") || "home"
-    if (!k_token || !k_exp) throw new Error("Gagal mengambil token dari fbdown.to")
+    if (!k_token || !k_exp) throw new Error(`Gagal mengambil token dari ${base}`)
 
     // 2) panggil API pencarian
     const body = new URLSearchParams({ k_exp, k_token, p: k_page, q: fbUrl, html: "", lang: "id", v: "v2", w: "" })
-    const { data: j } = await axios.post(`${BASE}/api/ajaxSearch`, body.toString(), {
+    const { data: j } = await axios.post(`${base}/api/ajaxSearch`, body.toString(), {
         headers: {
             "user-agent": UA,
             "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
             "x-requested-with": "XMLHttpRequest",
-            origin: BASE,
-            referer: `${BASE}/id`,
+            origin: base,
+            referer: `${base}${path}`,
         },
     })
     if (!j || j.status !== "ok" || !j.data) throw new Error(j?.mess || "Video tidak ditemukan atau URL tidak valid")
@@ -69,7 +73,20 @@ async function fbdown(fbUrl) {
     })
 
     if (!medias.length) throw new Error("Tidak ada format unduhan yang ditemukan")
-    return { title, thumbnail, total: medias.length, medias }
+    return { title, thumbnail, total: medias.length, medias, provider: new URL(base).hostname }
+}
+
+async function fbdown(fbUrl) {
+    // coba tiap provider berurutan; lanjut ke berikutnya kalau gagal
+    const errors = []
+    for (const provider of PROVIDERS) {
+        try {
+            return await fetchFromProvider(provider, fbUrl)
+        } catch (e) {
+            errors.push(`${new URL(provider.base).hostname}: ${e.message}`)
+        }
+    }
+    throw new Error(errors.join(" | "))
 }
 
 export default {
@@ -78,8 +95,8 @@ export default {
         path: "/downloader/fbdown",
         auth: false,
         tags: ["Downloader"],
-        summary: "Download video Facebook via fbdown.to",
-        description: "Mengunduh video Facebook (publik) menggunakan fbdown.to. Mengembalikan link unduhan berbagai kualitas (HD/SD).",
+        summary: "Download video Facebook via fbdown",
+        description: "Mengunduh video Facebook (publik) menggunakan fbdown.to dengan fallback ke fbdownloader.to. Mengembalikan link unduhan berbagai kualitas (HD/SD).",
         parameters: [
             {
                 name: "url",
@@ -104,6 +121,7 @@ export default {
                                         title: { type: "string" },
                                         thumbnail: { type: "string" },
                                         total: { type: "integer" },
+                                        provider: { type: "string" },
                                         medias: {
                                             type: "array",
                                             items: {
