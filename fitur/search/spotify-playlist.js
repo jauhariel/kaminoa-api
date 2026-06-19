@@ -147,9 +147,9 @@ async function scrape(type, id) {
 export default {
     route: {
         method: "get",
-        path: "/downloader/spotify-playlist",
+        path: "/search/spotify-playlist",
         auth: false,
-        tags: ["Downloader"],
+        tags: ["Search"],
         summary: "Scrape playlist/album/artist Spotify",
         description: "Mengambil daftar track dari Spotify: playlist & album = SEMUA track (tanpa batas 100); artist = 10 top track + info artis (followers, monthly listeners). Tiap track menyertakan URL track — bisa diteruskan ke downloader Spotify (mis. /downloader/musicfab) untuk MP3. Tanpa API key.",
         parameters: [
