@@ -117,11 +117,27 @@ function scoreItem(item) {
     return n
 }
 
+function isConvertLink(finalUrl) {
+    try {
+        const u = new URL(finalUrl)
+        return /(^|\.)9xbuddy\.site$/.test(u.hostname) && u.pathname.startsWith("/convert/")
+    } catch {
+        return false
+    }
+}
+
 function makeMedia(url, meta = {}) {
     const finalUrl = cleanUrl(url, SITE)
     if (!finalUrl) return null
     const type = mediaType(finalUrl, meta.ext)
     if (type === "link" && !MEDIA_RE.test(finalUrl)) return null
+    // Format DASH (mis. YouTube 720p/1080p video-only) butuh muxing di server 9xbuddy
+    // lewat halaman /convert/, jadi bukan link unduhan langsung.
+    const needsConvert = String(meta.convert) === "true" || isConvertLink(finalUrl)
+    // Layanan pihak ketiga (offmp3, savegif, savesubs, dll) juga berupa halaman
+    // pemrosesan, bukan file langsung.
+    const external = String(meta.external) === "true"
+    const direct = !needsConvert && !external
     const item = {
         url: finalUrl,
         type,
@@ -129,9 +145,14 @@ function makeMedia(url, meta = {}) {
         quality: meta.quality || undefined,
         ext: meta.ext || undefined,
         size: meta.size || undefined,
+        direct,
         source: "9xbuddy",
     }
+    if (needsConvert) item.needsConvert = true
+    if (external) item.external = true
     item.score = scoreItem(item)
+    // Pastikan link langsung-unduh selalu peringkat di atas link yang perlu proses lanjutan.
+    if (!direct) item.score = Math.max(1, item.score - 50)
     return item.score > 0 ? item : null
 }
 
