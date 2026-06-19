@@ -4,6 +4,14 @@ import crypto from "crypto"
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:151.0) Gecko/20100101 Firefox/151.0"
 const ENDPOINT = "https://gql.tokopedia.com/graphql/SearchProductV5Query"
 
+// Mode urut Tokopedia (param "ob"). Terverifikasi: 23=relevansi, 3=termurah, 4=termahal.
+const SORT_MAP = { relevan: "23", termurah: "3", termahal: "4" }
+
+function parsePrice(v) {
+    const n = parseInt(v, 10)
+    return Number.isFinite(n) && n >= 0 ? n : null
+}
+
 // Device id 19-digit acak penuh tanpa precision-loss. bd-device-id memengaruhi
 // jumlah hasil yang dikembalikan Tokopedia, jadi harus nilai yang valid.
 function randomDeviceId() {
@@ -31,16 +39,20 @@ query SearchProductV5Query($params: String!) {
 
 // Paginasi dikendalikan oleh "start" (offset), BUKAN "page": field page harus
 // tetap "1" — nilai >=2 membuat Tokopedia balikin 0 hasil. Offset sembarang dihormati.
-function buildParams(keyword, start, rows, uniqueId) {
-    return new URLSearchParams({
+// related="false" mematikan ekor produk rekomendasi yang mengabaikan filter/sort.
+function buildParams(keyword, start, rows, uniqueId, opts = {}) {
+    const params = {
         device: "desktop", enter_method: "normal_search", l_name: "sre", navsource: "home",
-        ob: "23", page: "1", q: keyword, related: "true", rows: String(rows),
+        ob: opts.ob || "23", page: "1", q: keyword, related: opts.related === false ? "false" : "true", rows: String(rows),
         safe_search: "false", sc: "", scheme: "https", shipping: "", show_adult: "false",
         source: "universe", st: "product", start: String(start), topads_bucket: "true",
         unique_id: uniqueId, user_addressId: "", user_cityId: "176", user_districtId: "2274",
         user_id: "", user_lat: "", user_long: "", user_postCode: "", user_warehouseId: "",
         variants: "", warehouses: "",
-    }).toString()
+    }
+    if (opts.pmin != null) params.pmin = String(opts.pmin)
+    if (opts.pmax != null) params.pmax = String(opts.pmax)
+    return new URLSearchParams(params).toString()
 }
 
 const label = (x, pos) => x?.labelGroups?.find(v => v.position === pos)?.title || null
@@ -99,15 +111,18 @@ function cleanProduct(x) {
     }
 }
 
-async function search(keyword, page, limit) {
+async function search(keyword, page, limit, { ob = "23", pmin = null, pmax = null } = {}) {
     // Minta data lebih banyak dari limit (Tokopedia kerap balikin >rows), lalu potong di sisi kita.
     // Offset paginasi berbasis limit agar "page" intuitif (page 2 = lanjut sebanyak limit).
     const rows = Math.max(limit, 60)
     const start = (page - 1) * limit
+    // Saat filter harga / sort non-default dipakai, matikan produk rekomendasi
+    // (related) yang mengabaikan filter — biar hasil bersih.
+    const filtering = pmin != null || pmax != null || ob !== "23"
     const deviceId = randomDeviceId()
     const payload = [{
         operationName: "SearchProductV5Query",
-        variables: { params: buildParams(keyword, start, rows, crypto.randomBytes(16).toString("hex")) },
+        variables: { params: buildParams(keyword, start, rows, crypto.randomBytes(16).toString("hex"), { ob, pmin, pmax, related: !filtering }) },
         query: QUERY,
     }]
 
@@ -132,7 +147,10 @@ async function search(keyword, page, limit) {
     const result = root?.data?.searchProductV5
     if (!result) throw new Error("Respons tidak terduga dari Tokopedia")
 
-    const products = result.data?.products || []
+    let products = result.data?.products || []
+    // Jaring pengaman: buang produk di luar rentang harga kalau ada yang lolos dari filter server.
+    if (pmin != null) products = products.filter(p => Number(p?.price?.number || 0) >= pmin)
+    if (pmax != null) products = products.filter(p => Number(p?.price?.number || 0) <= pmax)
     return {
         total: Number(result.header?.totalData || 0),
         totalText: result.data?.totalDataText || String(products.length),
@@ -147,7 +165,7 @@ export default {
         auth: false,
         tags: ["Search"],
         summary: "Cari produk Tokopedia",
-        description: "Mencari produk di Tokopedia (harga, diskon, rating, terjual, status toko). Mendukung halaman (page) dan batas hasil (limit). Tanpa API key.",
+        description: "Mencari produk di Tokopedia (harga, diskon, rating, terjual, status toko). Mendukung halaman (page), batas hasil (limit), urutan (sort), dan filter harga (pmin/pmax). Tanpa API key.",
         parameters: [
             {
                 name: "q",
@@ -169,6 +187,27 @@ export default {
                 required: false,
                 description: "Jumlah maksimum hasil (1-60, default 20)",
                 schema: { type: "integer", default: 20, minimum: 1, maximum: 60 },
+            },
+            {
+                name: "sort",
+                in: "query",
+                required: false,
+                description: "Urutan hasil (default relevan)",
+                schema: { type: "string", enum: ["relevan", "termurah", "termahal"], default: "relevan" },
+            },
+            {
+                name: "pmin",
+                in: "query",
+                required: false,
+                description: "Filter harga minimum (rupiah)",
+                schema: { type: "integer", minimum: 0, example: 5000000 },
+            },
+            {
+                name: "pmax",
+                in: "query",
+                required: false,
+                description: "Filter harga maksimum (rupiah)",
+                schema: { type: "integer", minimum: 0, example: 8000000 },
             },
         ],
         responses: {
@@ -241,9 +280,17 @@ export default {
         let limit = parseInt(req.query.limit, 10)
         if (isNaN(limit)) limit = 20
         limit = Math.max(1, Math.min(60, limit))
+
+        const sort = (req.query.sort || "relevan").toString().toLowerCase()
+        const ob = SORT_MAP[sort] || "23"
+        let pmin = parsePrice(req.query.pmin)
+        let pmax = parsePrice(req.query.pmax)
+        // Tukar kalau terbalik supaya rentang tetap masuk akal.
+        if (pmin != null && pmax != null && pmin > pmax) [pmin, pmax] = [pmax, pmin]
+
         try {
-            const { total, totalText, result } = await search(q, page, limit)
-            res.json({ ok: true, query: q, page, total, totalText, count: result.length, result })
+            const { total, totalText, result } = await search(q, page, limit, { ob, pmin, pmax })
+            res.json({ ok: true, query: q, page, sort, priceMin: pmin, priceMax: pmax, total, totalText, count: result.length, result })
         } catch (e) {
             res.status(500).json({ ok: false, error: e.message })
         }
