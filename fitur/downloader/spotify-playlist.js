@@ -39,6 +39,19 @@ const TYPES = {
             return t?.name ? { name: t.name, artists: t.artists?.items, ms: t.duration?.totalMilliseconds, uri: t.uri } : null
         },
     },
+    // Artist: tidak ada paginasi — kembalikan 10 top track (siap diunduh) + info artis.
+    artist: {
+        op: "queryArtistOverview",
+        vars: uri => ({ uri, locale: "", includePrerelease: true }),
+        root: j => j?.data?.artistUnion,
+        total: r => (r?.discography?.topTracks?.items || []).length,
+        items: r => r?.discography?.topTracks?.items || [],
+        meta: r => ({ name: r?.profile?.name || null, cover: pickCover(r?.visuals?.avatarImage?.sources), followers: r?.stats?.followers ?? null, monthlyListeners: r?.stats?.monthlyListeners ?? null }),
+        track: it => {
+            const t = it?.track
+            return t?.name ? { name: t.name, artists: t.artists?.items, ms: t.duration?.totalMilliseconds, uri: t.uri, playcount: t.playcount } : null
+        },
+    },
 }
 
 // ---- token anonim (dari halaman embed) ----
@@ -62,8 +75,11 @@ async function getHashes(force = false) {
     if (!bundle) throw new Error("Bundle web-player Spotify tidak ditemukan")
     const { data: js } = await axios.get(bundle, { headers: { "user-agent": UA }, timeout: 30000, responseType: "text" })
     const hashOf = op => String(js).match(new RegExp(`"${op}"[\\s\\S]{0,160}?([a-f0-9]{64})`))?.[1] || null
-    const hashes = { fetchPlaylist: hashOf("fetchPlaylist"), getAlbum: hashOf("getAlbum") }
-    if (!hashes.fetchPlaylist || !hashes.getAlbum) throw new Error("Hash query Spotify tidak ditemukan di bundle")
+    const ops = [...new Set(Object.values(TYPES).map(t => t.op))]
+    const hashes = {}
+    for (const op of ops) hashes[op] = hashOf(op)
+    const missing = ops.filter(op => !hashes[op])
+    if (missing.length) throw new Error(`Hash query Spotify tidak ditemukan: ${missing.join(", ")}`)
     hashCache = hashes
     return hashes
 }
@@ -109,7 +125,9 @@ async function scrape(type, id) {
             const t = cfg.track(it)
             if (!t?.uri) continue
             const tid = t.uri.split(":").pop()
-            tracks.push({ title: t.name, artist: artistNames(t.artists), duration: fmt(t.ms), durationMs: t.ms || null, id: tid, url: `${BASE}/track/${tid}` })
+            const out = { title: t.name, artist: artistNames(t.artists), duration: fmt(t.ms), durationMs: t.ms || null, id: tid, url: `${BASE}/track/${tid}` }
+            if (t.playcount != null) out.playcount = Number(t.playcount) || t.playcount
+            tracks.push(out)
         }
     }
 
@@ -123,8 +141,7 @@ async function scrape(type, id) {
         offset += items.length
     }
 
-    const meta = cfg.meta(root)
-    return { type, id, name: meta.name, owner: meta.owner, cover: meta.cover, total, count: tracks.length, tracks }
+    return { type, id, ...cfg.meta(root), total, count: tracks.length, tracks }
 }
 
 export default {
@@ -133,14 +150,14 @@ export default {
         path: "/downloader/spotify-playlist",
         auth: false,
         tags: ["Downloader"],
-        summary: "Scrape playlist/album Spotify (semua track)",
-        description: "Mengambil seluruh daftar track dari playlist atau album Spotify (tanpa batas 100), lengkap dengan URL track tiap lagu — yang bisa diteruskan ke endpoint downloader Spotify (mis. /downloader/musicfab) untuk mengunduh MP3. Tanpa API key.",
+        summary: "Scrape playlist/album/artist Spotify",
+        description: "Mengambil daftar track dari Spotify: playlist & album = SEMUA track (tanpa batas 100); artist = 10 top track + info artis (followers, monthly listeners). Tiap track menyertakan URL track — bisa diteruskan ke downloader Spotify (mis. /downloader/musicfab) untuk MP3. Tanpa API key.",
         parameters: [
             {
                 name: "url",
                 in: "query",
                 required: true,
-                description: "URL playlist atau album Spotify",
+                description: "URL playlist, album, atau artist Spotify",
                 schema: { type: "string", example: "https://open.spotify.com/playlist/3Lf9PqUBWQMeOtfuCNPnoY" },
             },
         ],
@@ -156,10 +173,12 @@ export default {
                                 result: {
                                     type: "object",
                                     properties: {
-                                        type: { type: "string", enum: ["playlist", "album"] },
+                                        type: { type: "string", enum: ["playlist", "album", "artist"] },
                                         id: { type: "string" },
                                         name: { type: "string" },
-                                        owner: { type: "string" },
+                                        owner: { type: "string", description: "Pemilik playlist / artis album" },
+                                        followers: { type: "integer", description: "Hanya untuk artist" },
+                                        monthlyListeners: { type: "integer", description: "Hanya untuk artist" },
                                         cover: { type: "string" },
                                         total: { type: "integer", description: "Total track menurut Spotify" },
                                         count: { type: "integer", description: "Jumlah track ter-scrape" },
@@ -174,6 +193,7 @@ export default {
                                                     durationMs: { type: "integer" },
                                                     id: { type: "string" },
                                                     url: { type: "string", description: "URL track Spotify" },
+                                                    playcount: { type: "integer", description: "Hanya untuk artist (top track)" },
                                                 },
                                             },
                                         },
@@ -190,8 +210,8 @@ export default {
     },
 
     handler: async (req, res) => {
-        const m = String(req.query.url || "").match(/spotify\.com\/(?:intl-[a-z]{2}\/)?(playlist|album)\/([A-Za-z0-9]+)/i)
-        if (!m) return res.status(400).json({ ok: false, error: "URL playlist/album Spotify tidak valid" })
+        const m = String(req.query.url || "").match(/spotify\.com\/(?:intl-[a-z]{2}\/)?(playlist|album|artist)\/([A-Za-z0-9]+)/i)
+        if (!m) return res.status(400).json({ ok: false, error: "URL playlist/album/artist Spotify tidak valid" })
         try {
             const result = await scrape(m[1].toLowerCase(), m[2])
             res.json({ ok: true, result })
