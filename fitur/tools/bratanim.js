@@ -52,25 +52,47 @@ function ensureFont() {
     return fontReady
 }
 
-// Layout final: tiap kata dapat posisi tetap {line, x}. Dihitung sekali utk
-// teks lengkap supaya kata tidak "loncat" saat di-reveal bertahap.
+// Layout final: tiap segmen dapat posisi tetap {str, x, wordIndex}. Dihitung
+// sekali utk teks lengkap supaya kata tidak "loncat" saat di-reveal bertahap.
+// Kata yang lebih lebar dari maxW dipecah per-huruf, tapi tiap potongan tetap
+// menyimpan wordIndex asal → reveal tetap "satu kata satu langkah".
 function computeLayout(ctx, words, maxW, fontSize) {
     ctx.font = `${fontSize}px BratNarrow`
     const spaceW = ctx.measureText(" ").width
     const lines = []
-    let cur = { words: [], width: 0 }
-    for (const w of words) {
-        const ww = ctx.measureText(w).width
-        const addW = cur.words.length ? spaceW + ww : ww
-        if (cur.words.length && cur.width + addW > maxW) {
-            lines.push(cur)
-            cur = { words: [], width: 0 }
+    let cur = { segs: [], width: 0 }
+    const pushLine = () => { lines.push(cur); cur = { segs: [], width: 0 } }
+
+    for (let wi = 0; wi < words.length; wi++) {
+        const w = words[wi]
+
+        // Kata terlalu lebar utk satu baris → patah per-huruf antar baris.
+        if (ctx.measureText(w).width > maxW) {
+            if (cur.segs.length) pushLine()
+            let chunk = ""
+            for (const ch of w) {
+                if (!chunk || ctx.measureText(chunk + ch).width <= maxW) {
+                    chunk += ch
+                } else {
+                    cur.segs.push({ str: chunk, x: 0, wordIndex: wi })
+                    cur.width = ctx.measureText(chunk).width
+                    pushLine()
+                    chunk = ch
+                }
+            }
+            cur.segs.push({ str: chunk, x: 0, wordIndex: wi })
+            cur.width = ctx.measureText(chunk).width
+            continue
         }
-        const x = cur.words.length ? cur.width + spaceW : 0
-        cur.words.push({ str: w, x })
+
+        const ww = ctx.measureText(w).width
+        const addW = cur.segs.length ? spaceW + ww : ww
+        if (cur.segs.length && cur.width + addW > maxW) pushLine()
+        const x = cur.segs.length ? cur.width + spaceW : 0
+        cur.segs.push({ str: w, x, wordIndex: wi })
         cur.width = x + ww
     }
-    if (cur.words.length) lines.push(cur)
+    if (cur.segs.length) pushLine()
     return lines
 }
 
@@ -91,13 +113,11 @@ function renderFrame({ layout, revealCount, fontSize, pad, maxH, style, blur }) 
     const lineH = fontSize * 0.92
     const startY = pad + (maxH - layout.length * lineH) / 2
 
-    let shown = 0
+    // Tampilkan semua segmen yang berasal dari `revealCount` kata pertama.
     for (let li = 0; li < layout.length; li++) {
         const y = startY + li * lineH
-        for (const word of layout[li].words) {
-            if (shown >= revealCount) { if (blur) ctx.filter = "none"; return canvas }
-            ctx.fillText(word.str, pad + word.x, y)
-            shown++
+        for (const seg of layout[li].segs) {
+            if (seg.wordIndex < revealCount) ctx.fillText(seg.str, pad + seg.x, y)
         }
     }
     if (blur) ctx.filter = "none"
@@ -156,7 +176,7 @@ export default {
                 name: "text",
                 in: "query",
                 required: true,
-                description: "Teks. Tiap kata muncul bergantian. (maks 12 kata)",
+                description: "Teks. Tiap kata muncul bergantian. (maks 10 kata)",
                 schema: { type: "string", example: "i'm so julia" },
             },
             {
@@ -217,8 +237,8 @@ export default {
 
         // Batasi jumlah kata supaya frame tidak meledak.
         const words = text.toLowerCase().split(/\s+/).filter(Boolean)
-        if (words.length > 12) {
-            return res.status(400).json({ ok: false, error: "teks terlalu panjang (maks 12 kata)" })
+        if (words.length > 10) {
+            return res.status(400).json({ ok: false, error: "teks terlalu panjang (maks 10 kata)" })
         }
 
         try {

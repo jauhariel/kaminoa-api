@@ -53,12 +53,28 @@ function ensureFont() {
 }
 
 // Pecah teks jadi baris yang muat di lebar maxW pada ukuran font tertentu.
+// Kata tunggal yang lebih lebar dari maxW dipecah per-huruf supaya tidak mberot.
 function wrapLines(ctx, text, maxW, fontSize) {
     ctx.font = `${fontSize}px BratNarrow`
     const words = text.split(/\s+/).filter(Boolean)
     const lines = []
     let cur = ""
     for (const w of words) {
+        // Kata terlalu lebar utk satu baris → patah per-huruf.
+        if (ctx.measureText(w).width > maxW) {
+            if (cur) { lines.push(cur); cur = "" }
+            let chunk = ""
+            for (const ch of w) {
+                if (!chunk || ctx.measureText(chunk + ch).width <= maxW) {
+                    chunk += ch
+                } else {
+                    lines.push(chunk)
+                    chunk = ch
+                }
+            }
+            cur = chunk
+            continue
+        }
         const trial = cur ? cur + " " + w : w
         if (ctx.measureText(trial).width <= maxW || !cur) {
             cur = trial
