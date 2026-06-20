@@ -196,11 +196,11 @@ async function renderQuote({ username, text, userColor = DEFAULT_USER_COLOR, ava
 export default {
     route: {
         method: "get",
-        path: "/tools/quote",
+        path: "/maker/qc",
         auth: false,
-        tags: ["Tools"],
-        summary: "Chat Bubble Quote",
-        description: "Membuat gambar quote gaya chat bubble (background transparan, output WebP). Username, teks, avatar, dan warna username bisa diatur. Teks panjang auto-wrap.",
+        tags: ["Maker"],
+        summary: "QC — Quoted Chat",
+        description: "QC (Quoted Chat). Membuat gambar quote gaya chat bubble (background transparan, output WebP). Username, teks, avatar, dan warna username bisa diatur. Teks panjang auto-wrap.",
         parameters: [
             {
                 name: "username",
@@ -298,7 +298,7 @@ export default {
                 bubble,
             })
             const slug = username.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 30)
-            const { url, provider } = await upload(buffer, `quote-${slug}.webp`)
+            const { url, provider } = await upload(buffer, `qc-${slug}.webp`)
             res.json({ ok: true, url, provider })
         } catch (e) {
             res.status(500).json({ ok: false, error: e.message })

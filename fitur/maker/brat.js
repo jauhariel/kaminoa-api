@@ -137,9 +137,9 @@ async function renderBrat({ text, style = "white", blur = false, size = 1000 }) 
 export default {
     route: {
         method: "get",
-        path: "/tools/brat",
+        path: "/maker/brat",
         auth: false,
-        tags: ["Tools"],
+        tags: ["Maker"],
         summary: "Brat Generator",
         description: "Membuat gambar teks gaya album 'brat' (Charli XCX). Varian warna hijau klasik/putih/hitam, blur opsional, teks auto-wrap.",
         parameters: [

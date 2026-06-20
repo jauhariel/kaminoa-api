@@ -166,9 +166,9 @@ async function renderBratAnim({ text, style = "white", blur = false, msPerWord =
 export default {
     route: {
         method: "get",
-        path: "/tools/bratanim",
+        path: "/maker/bratanim",
         auth: false,
-        tags: ["Tools"],
+        tags: ["Maker"],
         summary: "Brat Generator (Animasi)",
         description: "Membuat brat animasi (WebP): kata muncul satu per satu secara akumulatif (kata sebelumnya tetap tampil). Varian warna + blur opsional.",
         parameters: [

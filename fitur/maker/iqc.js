@@ -306,11 +306,11 @@ async function renderFakeChat({ text, chatTime = "11:02", statusTime = "17:01", 
 export default {
     route: {
         method: "get",
-        path: "/tools/fakechat",
+        path: "/maker/iqc",
         auth: false,
-        tags: ["Tools"],
-        summary: "Fake Chat iPhone",
-        description: "Membuat screenshot iMessage gaya tap-tahan (reaction bar emoji Apple + bubble pesan + menu Reply/Forward/Copy/Star/Pin/Report/Delete). Teks mendukung markdown *tebal* _miring_ ~coret~. Emoji di dalam teks tidak dirender (otomatis dihapus).",
+        tags: ["Maker"],
+        summary: "IQC — Iphone Quotly Chat",
+        description: "IQC (Iphone Quotly Chat). Screenshot iMessage gaya tap-tahan (reaction bar emoji Apple + bubble pesan + menu Reply/Forward/Copy/Star/Pin/Report/Delete). Teks mendukung markdown *tebal* _miring_ ~coret~. Emoji di dalam teks tidak dirender (otomatis dihapus).",
         parameters: [
             {
                 name: "text",
@@ -390,7 +390,7 @@ export default {
         try {
             const buffer = await renderFakeChat({ text, chatTime, statusTime, bubbleBg })
             const slug = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 30) || "chat"
-            const { url, provider } = await upload(buffer, `fakechat-${slug}.webp`)
+            const { url, provider } = await upload(buffer, `iqc-${slug}.webp`)
             res.json({ ok: true, url, provider })
         } catch (e) {
             res.status(500).json({ ok: false, error: e.message })
