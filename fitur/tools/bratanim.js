@@ -156,7 +156,7 @@ export default {
                 name: "text",
                 in: "query",
                 required: true,
-                description: "Teks. Tiap kata muncul bergantian. (maks 25 kata)",
+                description: "Teks. Tiap kata muncul bergantian. (maks 12 kata)",
                 schema: { type: "string", example: "i'm so julia" },
             },
             {
@@ -217,8 +217,8 @@ export default {
 
         // Batasi jumlah kata supaya frame tidak meledak.
         const words = text.toLowerCase().split(/\s+/).filter(Boolean)
-        if (words.length > 25) {
-            return res.status(400).json({ ok: false, error: "teks terlalu panjang (maks 25 kata)" })
+        if (words.length > 12) {
+            return res.status(400).json({ ok: false, error: "teks terlalu panjang (maks 12 kata)" })
         }
 
         try {

@@ -131,7 +131,7 @@ export default {
                 name: "text",
                 in: "query",
                 required: true,
-                description: "Teks yang ditampilkan (otomatis lowercase, maks 200 karakter)",
+                description: "Teks yang ditampilkan (otomatis lowercase, maks 20 kata)",
                 schema: { type: "string", example: "brat" },
             },
             {
@@ -181,8 +181,13 @@ export default {
         }
         const blur = req.query.blur === "true" || req.query.blur === "1"
 
+        const words = text.split(/\s+/).filter(Boolean)
+        if (words.length > 20) {
+            return res.status(400).json({ ok: false, error: "teks terlalu panjang (maks 20 kata)" })
+        }
+
         try {
-            const buffer = await renderBrat({ text: text.slice(0, 200), style, blur })
+            const buffer = await renderBrat({ text: words.join(" "), style, blur })
             const filename = `brat-${style}-${text.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 30)}.webp`
             const { url, provider } = await upload(buffer, filename)
             res.json({ ok: true, url, provider, style })
