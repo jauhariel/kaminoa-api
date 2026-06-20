@@ -11,6 +11,7 @@
     "dev": "node --watch index.js"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.0",
     "axios": "^1.17.0",
     "cheerio": "^1.2.0",
     "dotenv": "^17.4.2",
