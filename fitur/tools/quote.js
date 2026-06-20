@@ -14,10 +14,14 @@ const FONTS = [
 ]
 
 const COL = {
-    bubble: "#2a2233",
     avatarBg: "#d4d4d4",
     avatarIcon: "#f1f1f1",
-    text: "#ffffff",
+}
+// Varian warna bubble → {bg, fg}. fg = warna teks pesan (auto kontras).
+const BUBBLES = {
+    dark:  { bg: "#2a2233", fg: "#ffffff" }, // default (seperti contoh)
+    white: { bg: "#ffffff", fg: "#1c1c1e" },
+    black: { bg: "#000000", fg: "#ffffff" },
 }
 const DEFAULT_USER_COLOR = "#efa870"
 
@@ -114,8 +118,10 @@ function drawAvatar(ctx, cx, cy, r, img) {
 /**
  * Render chat-bubble quote → Buffer WebP transparan.
  */
-async function renderQuote({ username, text, userColor = DEFAULT_USER_COLOR, avatarImg }) {
+async function renderQuote({ username, text, userColor = DEFAULT_USER_COLOR, avatarImg, bubble = "dark" }) {
     await ensureFonts()
+
+    const theme = BUBBLES[bubble] || BUBBLES.dark
 
     const avatarR = 36
     const margin = 18
@@ -153,7 +159,7 @@ async function renderQuote({ username, text, userColor = DEFAULT_USER_COLOR, ava
     const ctx = canvas.getContext("2d")
 
     // ekor segitiga ke arah avatar
-    ctx.fillStyle = COL.bubble
+    ctx.fillStyle = theme.bg
     ctx.beginPath()
     ctx.moveTo(bubbleX + 4, bubbleY + bubbleH - 30)
     ctx.lineTo(bubbleX - 16, bubbleY + bubbleH - 6)
@@ -162,7 +168,7 @@ async function renderQuote({ username, text, userColor = DEFAULT_USER_COLOR, ava
     ctx.fill()
 
     // bubble
-    ctx.fillStyle = COL.bubble
+    ctx.fillStyle = theme.bg
     roundRect(ctx, bubbleX, bubbleY, bubbleW, bubbleH, 22)
     ctx.fill()
 
@@ -175,7 +181,7 @@ async function renderQuote({ username, text, userColor = DEFAULT_USER_COLOR, ava
     ctx.font = userFont
     ctx.fillText(username, tx, ty)
     ty += userSize + gap
-    ctx.fillStyle = COL.text
+    ctx.fillStyle = theme.fg
     ctx.font = textFont
     for (const line of lines) {
         ctx.fillText(line, tx, ty)
@@ -224,6 +230,13 @@ export default {
                 description: "Warna username (hex, mis. #efa870). Default oranye.",
                 schema: { type: "string", example: "#efa870" },
             },
+            {
+                name: "bubble",
+                in: "query",
+                required: false,
+                description: "Warna bubble: dark (default), white, black. Warna teks otomatis menyesuaikan.",
+                schema: { type: "string", enum: ["dark", "white", "black"], default: "dark" },
+            },
         ],
         responses: {
             "200": {
@@ -261,6 +274,11 @@ export default {
             userColor = c
         }
 
+        const bubble = String(req.query.bubble || "dark").toLowerCase()
+        if (!BUBBLES[bubble]) {
+            return res.status(400).json({ ok: false, error: `bubble tidak valid, pilih: ${Object.keys(BUBBLES).join(", ")}` })
+        }
+
         try {
             let avatarImg = null
             if (req.query.avatar?.trim()) {
@@ -277,6 +295,7 @@ export default {
                 text: text.slice(0, 500),
                 userColor,
                 avatarImg,
+                bubble,
             })
             const slug = username.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 30)
             const { url, provider } = await upload(buffer, `quote-${slug}.webp`)
