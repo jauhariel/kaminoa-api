@@ -107,7 +107,7 @@ function renderFrame({ layout, revealCount, fontSize, pad, maxH, style, blur }) 
 /**
  * Render brat animasi (reveal kata akumulatif) → Buffer animated WebP.
  */
-async function renderBratAnim({ text, style = "green", blur = false, msPerWord = SPEED.normal }) {
+async function renderBratAnim({ text, style = "white", blur = false, msPerWord = SPEED.normal }) {
     await ensureFont()
 
     const words = String(text).toLowerCase().trim().split(/\s+/).filter(Boolean)
@@ -156,15 +156,15 @@ export default {
                 name: "text",
                 in: "query",
                 required: true,
-                description: "Teks. Tiap kata muncul bergantian. (maks 60 kata)",
+                description: "Teks. Tiap kata muncul bergantian. (maks 25 kata)",
                 schema: { type: "string", example: "i'm so julia" },
             },
             {
                 name: "style",
                 in: "query",
                 required: false,
-                description: "Varian warna: green (default), white, black",
-                schema: { type: "string", enum: ["green", "white", "black"], default: "green" },
+                description: "Varian warna: white (default), green, black",
+                schema: { type: "string", enum: ["green", "white", "black"], default: "white" },
             },
             {
                 name: "blur",
@@ -208,7 +208,7 @@ export default {
         const text = req.query.text?.trim()
         if (!text) return res.status(400).json({ ok: false, error: "text wajib diisi" })
 
-        const style = String(req.query.style || "green").toLowerCase()
+        const style = String(req.query.style || "white").toLowerCase()
         if (!STYLES[style]) {
             return res.status(400).json({ ok: false, error: `style tidak valid, pilih: ${Object.keys(STYLES).join(", ")}` })
         }
@@ -217,8 +217,8 @@ export default {
 
         // Batasi jumlah kata supaya frame tidak meledak.
         const words = text.toLowerCase().split(/\s+/).filter(Boolean)
-        if (words.length > 60) {
-            return res.status(400).json({ ok: false, error: "teks terlalu panjang (maks 60 kata)" })
+        if (words.length > 25) {
+            return res.status(400).json({ ok: false, error: "teks terlalu panjang (maks 25 kata)" })
         }
 
         try {

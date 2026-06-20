@@ -75,7 +75,7 @@ function wrapLines(ctx, text, maxW, fontSize) {
  * Render kartu brat → Buffer.
  * @param {{ text: string, style?: string, blur?: boolean, size?: number }} o
  */
-async function renderBrat({ text, style = "green", blur = false, size = 1000 }) {
+async function renderBrat({ text, style = "white", blur = false, size = 1000 }) {
     await ensureFont()
 
     const { bg, fg } = STYLES[style] || STYLES.green
@@ -138,8 +138,8 @@ export default {
                 name: "style",
                 in: "query",
                 required: false,
-                description: "Varian warna: green (default), white, black",
-                schema: { type: "string", enum: ["green", "white", "black"], default: "green" },
+                description: "Varian warna: white (default), green, black",
+                schema: { type: "string", enum: ["green", "white", "black"], default: "white" },
             },
             {
                 name: "blur",
@@ -175,7 +175,7 @@ export default {
         const text = req.query.text?.trim()
         if (!text) return res.status(400).json({ ok: false, error: "text wajib diisi" })
 
-        const style = String(req.query.style || "green").toLowerCase()
+        const style = String(req.query.style || "white").toLowerCase()
         if (!STYLES[style]) {
             return res.status(400).json({ ok: false, error: `style tidak valid, pilih: ${Object.keys(STYLES).join(", ")}` })
         }
