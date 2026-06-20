@@ -45,12 +45,12 @@ for (const file of walkDir(path.join(__dirname, "fitur"))) {
                 app[method](routePath, feature.handler)
             }
             features.push(feature)
-            console.log(`[route] ${method.toUpperCase()} ${routePath}${auth ? " 🔒" : ""}`)
         }
     } catch (e) {
         console.warn(`[warn] Gagal load ${file}:`, e.message)
     }
 }
+console.log(`[routes] ${features.length} endpoint loaded`)
 
 function buildOpenAPI(req) {
     const paths = {}
