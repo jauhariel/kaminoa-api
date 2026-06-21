@@ -123,6 +123,13 @@ export default {
                 required: false,
                 description: "Token sesi dari respons sebelumnya untuk melanjutkan percakapan. Kosongkan untuk memulai chat baru.",
                 schema: { type: "string" }
+            },
+            {
+                name: "system",
+                in: "query",
+                required: false,
+                description: "Instruksi sistem / persona untuk mengatur peran AI (mis. 'kamu adalah bajak laut'). Copilot tidak punya role system asli, jadi instruksi di-prepend ke pesan. Cukup dikirim di turn pertama; persona menempel di percakapan saat memakai session.",
+                schema: { type: "string", example: "Kamu adalah asisten yang ramah dan selalu menjawab singkat." }
             }
         ],
         responses: {
@@ -166,7 +173,7 @@ export default {
     },
 
     handler: async (req, res) => {
-        const { prompt, model = "default", session } = req.query
+        const { prompt, model = "default", session, system } = req.query
         if (!prompt || !prompt.trim()) {
             return res.status(400).json({ ok: false, error: "prompt wajib diisi" })
         }
@@ -189,8 +196,12 @@ export default {
             }
         }
 
+        const message = system?.trim()
+            ? `### Instruksi sistem (patuhi sepanjang percakapan):\n${system.trim()}\n\n### Pesan user:\n${prompt.trim()}`
+            : prompt.trim()
+
         try {
-            const result = await chat(prompt.trim(), conversationId, model, cookies)
+            const result = await chat(message, conversationId, model, cookies)
             res.json({
                 ok: true,
                 text: result.text,
