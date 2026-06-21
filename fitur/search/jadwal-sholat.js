@@ -1,21 +1,4 @@
 import axios from "axios"
-import * as cheerio from "cheerio"
-
-const UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
-
-// ═══════════════════════════════════════════════════
-//  Aladhan API (free, no login, support nama kota)
-// ═══════════════════════════════════════════════════
-
-const PRAYER_NAME_MAP_ALADHAN = {
-    Imsak: "imsak",
-    Fajr: "subuh",
-    Sunrise: "terbit",
-    Dhuhr: "dzuhur",
-    Asr: "ashar",
-    Maghrib: "maghrib",
-    Isha: "isya"
-}
 
 async function fetchAladhan(params, useCity = false) {
     const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "-")
@@ -45,48 +28,6 @@ function parseAladhanTimings(data) {
     }
 }
 
-// ═══════════════════════════════════════════════════
-//  MuslimPro scrape (by URL)
-// ═══════════════════════════════════════════════════
-
-const PRAYER_NAME_MAP_MP = {
-    Imsak: "imsak", Fajr: "subuh", Sunrise: "terbit",
-    Zuhr: "dzuhur", Asr: "ashar", Maghrib: "maghrib", Isha: "isya"
-}
-
-function extractFromMuslimPro(html) {
-    const $ = cheerio.load(html)
-    const jadwal = []
-
-    $('script[type="application/ld+json"]').each((_, el) => {
-        try {
-            const json = JSON.parse($(el).text())
-            if (json["@type"] === "ItemList" && json.itemListElement?.[0]?.["@type"] === "Event") {
-                for (const ev of json.itemListElement) {
-                    const startDate = ev.startDate || ""
-                    const timeMatch = startDate.match(/T(\d{2}:\d{2})/)
-                    const tzMatch = startDate.match(/([+-]\d{2}:\d{2})$/)
-                    jadwal.push({
-                        nama: PRAYER_NAME_MAP_MP[ev.name] || ev.name.toLowerCase(),
-                        waktu: timeMatch ? timeMatch[1] : null,
-                        timezone: tzMatch ? tzMatch[1] : null
-                    })
-                }
-            }
-        } catch {}
-    })
-
-    const desc = $('meta[name="description"]').attr("content") || ""
-    const m1 = desc.match(/Jadwal sholat di (.+?) hari ini/)
-    const kota = m1 ? m1[1].trim() : ($('meta[property="og:title"]').attr("content") || "").match(/^(.+?):\s*Waktu/)?.[1]?.trim() || null
-
-    return { kota, jadwal }
-}
-
-// ═══════════════════════════════════════════════════
-//  Handler
-// ═══════════════════════════════════════════════════
-
 export default {
     route: {
         method: "get",
@@ -94,13 +35,13 @@ export default {
         auth: false,
         tags: ["Search"],
         summary: "Jadwal sholat harian",
-        description: "Jadwal sholat harian dari 2 sumber: (1) Aladhan API — pakai parameter kota/negara atau lat/lng, (2) MuslimPro — pakai parameter url. Metode default: Kemenag RI.",
+        description: "Jadwal sholat harian via Aladhan API. Support nama kota atau koordinat lat/lng. Metode default: Kemenag RI.",
         parameters: [
             {
                 name: "kota",
                 in: "query",
                 required: false,
-                description: "Nama kota (via Aladhan API)",
+                description: "Nama kota",
                 schema: { type: "string", example: "Jakarta" }
             },
             {
@@ -114,14 +55,14 @@ export default {
                 name: "lat",
                 in: "query",
                 required: false,
-                description: "Latitude (via Aladhan API)",
+                description: "Latitude",
                 schema: { type: "number", example: -7.0123 }
             },
             {
                 name: "lng",
                 in: "query",
                 required: false,
-                description: "Longitude (via Aladhan API)",
+                description: "Longitude",
                 schema: { type: "number", example: 113.8657 }
             },
             {
@@ -130,13 +71,6 @@ export default {
                 required: false,
                 description: "Metode perhitungan: 20=Kemenag (default), 3=ISNA, 5=MWL, 8=Gulf Region, 11=Turkiye, 15=Egypt",
                 schema: { type: "integer", default: 20 }
-            },
-            {
-                name: "url",
-                in: "query",
-                required: false,
-                description: "URL halaman MuslimPro (alternatif)",
-                schema: { type: "string", example: "https://app.muslimpro.com/id/prayer-times/indonesia/waktu-sholat-jakarta/1642911" }
             }
         ],
         responses: {
@@ -151,8 +85,8 @@ export default {
                                 kota: { type: "string" },
                                 tanggal: { type: "string" },
                                 hijriyah: { type: "string" },
-                                sumber: { type: "string" },
                                 metode: { type: "string" },
+                                timezone: { type: "string" },
                                 jadwal: {
                                     type: "array",
                                     items: {
@@ -174,39 +108,16 @@ export default {
     },
 
     handler: async (req, res) => {
-        const { kota, negara = "Indonesia", lat, lng, metode = "20", url } = req.query
+        const { kota, negara = "Indonesia", lat, lng, metode = "20" } = req.query
 
-        if (!kota && !lat && !url) {
+        if (!kota && !lat) {
             return res.status(400).json({
                 ok: false,
-                error: "isi salah satu: kota (contoh: Jakarta), lat+lng (contoh: -7.0123,113.8657), atau url (MuslimPro URL)"
+                error: "isi salah satu: kota (contoh: Jakarta) atau lat+lng (contoh: -7.01,113.86)"
             })
         }
 
         try {
-            // Sumber 1: MuslimPro (by URL)
-            if (url) {
-                if (!url.includes("muslimpro.com")) {
-                    return res.status(400).json({ ok: false, error: "url harus dari muslimpro.com" })
-                }
-                const { data } = await axios.get(url, {
-                    headers: { "user-agent": UA, "accept-language": "id-ID,id;q=0.9" },
-                    timeout: 15000
-                })
-                const result = extractFromMuslimPro(data)
-                if (!result.jadwal.length) {
-                    return res.status(500).json({ ok: false, error: "gagal mengekstrak jadwal sholat dari halaman" })
-                }
-                return res.json({
-                    ok: true,
-                    kota: result.kota || "Unknown",
-                    sumber: "MuslimPro",
-                    url,
-                    jadwal: result.jadwal
-                })
-            }
-
-            // Sumber 2: Aladhan API (by nama kota atau lat/lng)
             const params = { method: parseInt(metode) || 20 }
             if (lat && lng) {
                 params.latitude = parseFloat(lat)
@@ -220,14 +131,11 @@ export default {
             const data = await fetchAladhan(params, useCity)
             const result = parseAladhanTimings(data)
 
-            const lokasi = kota || `${lat},${lng}`
-
             res.json({
                 ok: true,
-                kota: lokasi,
+                kota: kota || `${lat},${lng}`,
                 tanggal: result.tanggal,
                 hijriyah: result.hijriyah,
-                sumber: "Aladhan",
                 metode: result.metode,
                 timezone: result.timezone,
                 jadwal: result.jadwal
