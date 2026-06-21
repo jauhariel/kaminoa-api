@@ -1,11 +1,20 @@
 import axios from "axios"
 
+function isNumeric(str) {
+    const num = parseFloat(str)
+    return !isNaN(num) && str !== ""
+}
+
 async function fetchAladhan(params, useCity = false) {
     const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "-")
     const endpoint = useCity ? "timingsByCity" : "timings"
     const url = `https://api.aladhan.com/v1/${endpoint}/${today}`
     const { data } = await axios.get(url, { params, timeout: 10000 })
-    if (data.code !== 200) throw new Error("aladhan API error")
+    if (Number(data.code) !== 200) {
+        const msg = data.results?.error || data.status || `API error (code: ${data.code})`
+        throw new Error(msg)
+    }
+    if (!data.data) throw new Error("aladhan API: missing data in response")
     return data.data
 }
 
@@ -110,30 +119,51 @@ export default {
     handler: async (req, res) => {
         const { kota, negara = "Indonesia", lat, lng, metode = "20" } = req.query
 
-        if (!kota && !lat) {
+        const hasCoords = lat && lng
+        const hasCity = kota
+
+        if (!hasCoords && !hasCity) {
             return res.status(400).json({
                 ok: false,
                 error: "isi salah satu: kota (contoh: Jakarta) atau lat+lng (contoh: -7.01,113.86)"
             })
         }
 
+        if (hasCoords && (!isNumeric(lat) || !isNumeric(lng))) {
+            return res.status(400).json({
+                ok: false,
+                error: "lat dan lng harus angka valid"
+            })
+        }
+
+        if (hasCoords && hasCity) {
+            return res.status(400).json({
+                ok: false,
+                error: "gunakan salah satu: (lat+lng) atau kota, bukan keduanya"
+            })
+        }
+
         try {
-            const params = { method: parseInt(metode) || 20 }
-            if (lat && lng) {
+            const params = { method: parseInt(metode) ?? 20 }
+            let respKota = ""
+
+            if (hasCoords) {
                 params.latitude = parseFloat(lat)
                 params.longitude = parseFloat(lng)
+                respKota = `${params.latitude},${params.longitude}`
             } else {
                 params.city = kota
                 params.country = negara
+                respKota = kota
             }
 
-            const useCity = !!(params.city)
+            const useCity = !!params.city
             const data = await fetchAladhan(params, useCity)
             const result = parseAladhanTimings(data)
 
             res.json({
                 ok: true,
-                kota: kota || `${lat},${lng}`,
+                kota: respKota,
                 tanggal: result.tanggal,
                 hijriyah: result.hijriyah,
                 metode: result.metode,
@@ -141,7 +171,10 @@ export default {
                 jadwal: result.jadwal
             })
         } catch (e) {
-            res.status(e.response?.status || 500).json({ ok: false, error: e.message })
+            const status = e.response?.status ?? 500
+            const isClientError = status >= 400 && status < 500
+            const msg = isClientError ? e.message : "Gagal mengambil jadwal sholat"
+            res.status(status).json({ ok: false, error: msg })
         }
     }
 }
