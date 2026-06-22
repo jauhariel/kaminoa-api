@@ -40,9 +40,9 @@ function parseAladhanTimings(data) {
 export default {
     route: {
         method: "get",
-        path: "/search/jadwal-sholat",
+        path: "/islamic/jadwal-sholat",
         auth: false,
-        tags: ["Search"],
+        tags: ["Islamic"],
         summary: "Jadwal sholat harian",
         description: "Jadwal sholat harian via Aladhan API. Support nama kota atau koordinat lat/lng. Metode default: Kemenag RI.",
         parameters: [
