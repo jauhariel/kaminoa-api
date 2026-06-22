@@ -18,8 +18,10 @@ function parsePOS(el) {
     return { label, full: title }
 }
 
-async function searchKBBI(query) {
-    const url = `https://kbbi.kemendikdasmen.go.id/entri/${encodeURIComponent(query)}`
+async function searchKBBI(query, source = "kemendikdasmen") {
+    const url = source === "web"
+        ? `https://kbbi.web.id/${encodeURIComponent(query)}`
+        : `https://kbbi.kemendikdasmen.go.id/entri/${encodeURIComponent(query)}`
     const { data, status } = await axios.get(url, {
         headers: {
             "user-agent": UA,
@@ -136,6 +138,75 @@ function parseDefinition($, li) {
     return result
 }
 
+function parseWebKBBI(html) {
+    const $ = cheerio.load(html)
+    const d1 = $("#d1")
+    if (!d1.length) return []
+
+    // cek error: "tidak ditemukan"
+    if (/tidak ditemukan/i.test(d1.text())) return []
+
+    const entries = []
+    const raw = $.html(d1)
+
+    // split per bentuk kata: <br><br> atau <br/><br/>
+    const sections = raw.split(/<br\s*\/?><br\s*\/?>/)
+
+    for (const section of sections) {
+        const $sec = cheerio.load(`<div>${section}</div>`)
+        const root = $sec("div").first()
+
+        const lemaEl = root.find("b").first()
+        if (!lemaEl.length) continue
+        const lema = clean(lemaEl.text().replace(/<sup>.*?<\/sup>/g, ""))
+        if (!lema || /^\d+$/.test(lema)) continue
+
+        const text = clean(root.text().replace(/<sup>.*?<\/sup>/g, ""))
+        if (!text) continue
+
+        // ekstrak definisi bernomor (1, 2, 3...)
+        const entri = []
+        const boldEls = root.find("b")
+
+        boldEls.each((i, el) => {
+            const txt = clean($sec(el).text()).replace(/<sup>.*?<\/sup>/g, "")
+            if (/^\d+$/.test(txt)) {
+                // ambil teks dari setelah <b>N</b> sampai <b> berikutnya atau akhir
+                let rest = ""
+                let nxt = $sec(el).next()
+                while (nxt.length && !(nxt.is("b") && /^\d+$/.test(clean(nxt.text())))) {
+                    rest += nxt.text().trim() + " "
+                    nxt = nxt.next()
+                }
+                const arti = clean(rest).replace(/<sup>.*?<\/sup>/g, "")
+                if (arti) {
+                    const def = { nomor: parseInt(txt), arti }
+                    // ekstrak kode dari <em> pertama
+                    if (i === 1) {
+                        const firstEm = root.find("em").first()
+                        if (firstEm.length) def.kode = clean(firstEm.text())
+                    }
+                    entri.push(def)
+                }
+            }
+        })
+
+        if (!entri.length) {
+            entri.push({ arti: text })
+        }
+
+        entries.push({ lema, entri })
+    }
+
+    if (!entries.length) {
+        const text = clean(d1.text())
+        const lema = clean(d1.find("b").first().text().replace(/<sup>.*?<\/sup>/g, ""))
+        entries.push({ lema: lema || text.split(/\s/)[0], entri: [{ arti: text }] })
+    }
+
+    return entries
+}
+
 export default {
     route: {
         method: "get",
@@ -151,6 +222,13 @@ export default {
                 required: true,
                 description: "Kata yang ingin dicari",
                 schema: { type: "string", example: "makan" }
+            },
+            {
+                name: "source",
+                in: "query",
+                required: false,
+                description: "Sumber data KBBI (default: kemendikdasmen)",
+                schema: { type: "string", enum: ["kemendikdasmen", "web"], default: "kemendikdasmen" }
             }
         ],
         responses: {
@@ -200,27 +278,55 @@ export default {
 
     handler: async (req, res) => {
         const q = (req.query.q || "").trim()
+        const source = req.query.source || "kemendikdasmen"
         if (!q) return res.status(400).json({ ok: false, error: "parameter q wajib diisi" })
 
-        try {
-            const { data, status, url } = await searchKBBI(q)
-
-            // cek apakah ada pesan error dari KBBI
+        const trySource = async (src) => {
+            const { data, url } = await searchKBBI(q, src)
+            if (src === "web") {
+                const entries = parseWebKBBI(data)
+                return { entries, url, source: src }
+            }
             const $ = cheerio.load(data)
             const errDiv = $("#errorMessageDiv")
             if (errDiv.length && clean(errDiv.text())) {
-                return res.status(404).json({ ok: false, error: clean(errDiv.text()) })
+                throw Object.assign(new Error(clean(errDiv.text())), { statusCode: 404 })
+            }
+            // cek "Entri tidak ditemukan"
+            if (/Entri tidak ditemukan/i.test(data)) {
+                throw Object.assign(new Error("Entri tidak ditemukan"), { statusCode: 404 })
+            }
+            const entries = parseEntries(data)
+            return { entries, url, source: src }
+        }
+
+        try {
+            let result
+            if (source === "web") {
+                result = await trySource("web")
+            } else {
+                // coba kemendikdasmen dulu, fallback ke web kalo gagal
+                try {
+                    result = await trySource("kemendikdasmen")
+                } catch (err) {
+                    if (err.statusCode === 404) {
+                        // fallback ke kbbi.web.id
+                        const webResult = await trySource("web")
+                        result = webResult
+                    } else {
+                        throw err
+                    }
+                }
             }
 
-            const entries = parseEntries(data)
-
-            if (!entries.length) {
+            if (!result.entries.length) {
                 return res.status(404).json({ ok: false, error: `kata "${q}" tidak ditemukan di KBBI` })
             }
 
-            res.json({ ok: true, query: q, url, hasil: entries })
+            res.json({ ok: true, query: q, url: result.url, source: result.source, hasil: result.entries })
         } catch (e) {
-            if (e.response?.status === 404) {
+            const status = e.statusCode || 500
+            if (status === 404) {
                 return res.status(404).json({ ok: false, error: `kata "${q}" tidak ditemukan di KBBI` })
             }
             res.status(500).json({ ok: false, error: e.message })
