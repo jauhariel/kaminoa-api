@@ -3,7 +3,7 @@ import { resolve, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const data = JSON.parse(readFileSync(resolve(__dirname, "../../assets/asmaul-husna.json"), "utf-8"))
+const data = JSON.parse(readFileSync(resolve(__dirname, "../../assets/islamic/asmaul-husna.json"), "utf-8"))
 
 export default {
     route: {
