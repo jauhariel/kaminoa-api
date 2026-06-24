@@ -218,6 +218,9 @@ export default {
         }
         const thinking = req.query.thinking === "true" || req.query.thinking === "1"
         const search = req.query.search === "true" || req.query.search === "1"
+        if (thinking && search) {
+            return res.status(400).json({ ok: false, error: "Mode thinking dan web search tidak bisa dipakai bersamaan, pilih salah satu" })
+        }
         const session = (req.query.session && req.query.session.trim()) || DEFAULT_SESSION
         try {
             const { answer, reasoning, sources, interrupted } = await askSakana(prompt.trim(), { thinking, search, session })
