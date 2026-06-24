@@ -249,7 +249,9 @@ export default {
         auth: false,
         tags: ["AI"],
         summary: "Chat dengan Sakana AI (Namazu)",
-        description: "Kirim pesan ke model Namazu lewat chat.sakana.ai tanpa login. Mendukung mode berpikir (thinking), pencarian web, lampiran file lewat URL (`fileUrl`), dan percakapan multi-turn (`keep` lalu lanjutkan dengan `conversationId` + `session`). Session anonim dibuat otomatis — opsional override lewat `session` atau env `SAKANA_SESSION`. Catatan: thinking & search tidak bisa aktif bersamaan; lampiran file diekstrak sebagai teks/dokumen (bukan analisa gambar).",
+        description: "Kirim pesan ke model Namazu lewat chat.sakana.ai tanpa login. Session anonim dibuat otomatis. Mendukung mode berpikir (thinking), pencarian web, dan lampiran file lewat URL (fileUrl). " +
+            "MULTI-TURN: mulai dengan keep=true, mis. `/ai/sakana?prompt=Halo&keep=true` → respons memberi conversationId. Lanjutkan dengan `/ai/sakana?prompt=lanjutannya&conversationId=<id-tadi>`. " +
+            "Catatan: thinking & search tidak bisa aktif bersamaan; lampiran file diekstrak sebagai teks/dokumen (bukan analisa gambar).",
         parameters: [
             {
                 name: "prompt",
@@ -263,14 +265,14 @@ export default {
                 in: "query",
                 required: false,
                 description: "Aktifkan mode berpikir mendalam (reasoning). Tidak bisa digabung dengan search.",
-                schema: { type: "boolean", default: false }
+                schema: { type: "boolean", enum: [false, true], default: false }
             },
             {
                 name: "search",
                 in: "query",
                 required: false,
                 description: "Aktifkan pencarian web. Tidak bisa digabung dengan thinking.",
-                schema: { type: "boolean", default: false }
+                schema: { type: "boolean", enum: [false, true], default: false }
             },
             {
                 name: "fileUrl",
@@ -283,15 +285,15 @@ export default {
                 name: "keep",
                 in: "query",
                 required: false,
-                description: "Simpan percakapan agar bisa dilanjutkan (multi-turn). Respons akan menyertakan conversationId, messageId, dan session.",
-                schema: { type: "boolean", default: false }
+                description: "Set `true` untuk percakapan multi-turn: percakapan disimpan & respons menyertakan `conversationId` (+ `messageId`, `session`). Lanjutkan dengan mengirim `conversationId` di permintaan berikutnya. Default `false` = sekali jawab lalu dihapus.",
+                schema: { type: "boolean", enum: [false, true], default: false, example: true }
             },
             {
                 name: "conversationId",
                 in: "query",
                 required: false,
-                description: "Lanjutkan percakapan yang sudah ada (dari respons sebelumnya). Sertakan juga `session` yang sama.",
-                schema: { type: "string" }
+                description: "Lanjutkan percakapan yang sudah ada. Isi dengan `conversationId` dari respons `keep=true` sebelumnya (cukup ini saja; `session` opsional).",
+                schema: { type: "string", example: "019efbef-1ca3-750f-9000-000000000000" }
             },
             {
                 name: "session",
