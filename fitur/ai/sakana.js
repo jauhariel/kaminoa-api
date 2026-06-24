@@ -202,13 +202,13 @@ async function cleanup(conversationId, session) {
     } catch {}
 }
 
-async function runOnce(prompt, { thinking, search, session, files, conversationId, parentId, keep }) {
+async function runOnce(prompt, { thinking, search, session, files, conversationId, keep }) {
     let cid = conversationId
-    let pid = parentId
+    let pid
     let created = false
     if (cid) {
-        // Lanjutan percakapan: parent = pesan terakhir (kecuali parentId di-override).
-        if (!pid) pid = await lastMessageId(cid, session)
+        // Lanjutan percakapan: parent = pesan terakhir di conversation.
+        pid = await lastMessageId(cid, session)
         if (!pid) throw httpError("Tidak bisa menentukan pesan induk untuk dilanjutkan", 400)
     } else {
         const c = await createConversation(prompt, { thinking, search, session })
@@ -225,12 +225,12 @@ async function runOnce(prompt, { thinking, search, session, files, conversationI
     }
 }
 
-async function askSakana(prompt, { thinking = false, search = false, sessionOverride = null, fileUrls = [], conversationId = null, parentId = null, keep = false } = {}) {
+async function askSakana(prompt, { thinking = false, search = false, sessionOverride = null, fileUrls = [], conversationId = null, keep = false } = {}) {
     const files = await fetchFiles(fileUrls)
     const explicit = !!(sessionOverride || process.env.SAKANA_SESSION)
     let session = await getSession(sessionOverride)
     try {
-        return await runOnce(prompt, { thinking, search, session, files, conversationId, parentId, keep })
+        return await runOnce(prompt, { thinking, search, session, files, conversationId, keep })
     } catch (e) {
         // Session auto kedaluwarsa → buang cache, mint ulang, coba lagi (hanya utk percakapan baru).
         if (e.status === 401 && !explicit && !conversationId) {
@@ -294,17 +294,10 @@ export default {
                 schema: { type: "string" }
             },
             {
-                name: "parentId",
-                in: "query",
-                required: false,
-                description: "Id pesan induk saat melanjutkan (opsional; default otomatis dari pesan terakhir). Gunakan `messageId` dari respons sebelumnya.",
-                schema: { type: "string" }
-            },
-            {
                 name: "session",
                 in: "query",
                 required: false,
-                description: "Cookie session `sakana-chat`. Default dibuat otomatis; wajib disertakan saat melanjutkan percakapan (pakai nilai `session` dari respons sebelumnya).",
+                description: "Cookie session `sakana-chat`. Default dibuat otomatis. Untuk melanjutkan percakapan biasanya cukup `conversationId`; sertakan `session` (dari respons sebelumnya) hanya bila ingin tahan terhadap restart server.",
                 schema: { type: "string" }
             }
         ],
@@ -356,10 +349,9 @@ export default {
         }
         const sessionOverride = (req.query.session && req.query.session.trim()) || null
         const conversationId = (req.query.conversationId && req.query.conversationId.trim()) || null
-        const parentId = (req.query.parentId && req.query.parentId.trim()) || null
         const keep = req.query.keep === "true" || req.query.keep === "1"
         try {
-            const out = await askSakana(prompt.trim(), { thinking, search, sessionOverride, fileUrls, conversationId, parentId, keep })
+            const out = await askSakana(prompt.trim(), { thinking, search, sessionOverride, fileUrls, conversationId, keep })
             const body = { ok: true, answer: out.answer, reasoning: out.reasoning, sources: out.sources, interrupted: out.interrupted }
             if (keep || conversationId) {
                 body.conversationId = out.conversationId
