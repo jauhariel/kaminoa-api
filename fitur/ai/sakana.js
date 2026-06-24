@@ -2,11 +2,18 @@ const BASE = "https://chat.sakana.ai"
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 const AGENT_ID = "namazu"
 
-// Session anonim diambil dari cookie `sakana-chat` browser (chat tanpa login).
-// chat.sakana.ai memakai Firebase App Check (reCAPTCHA Enterprise) untuk
-// mengesahkan session baru, jadi session TIDAK bisa dibuat headless — wajib
-// pakai cookie dari browser. Urutan sumber: query ?session= → env → default.
-const DEFAULT_SESSION = process.env.SAKANA_SESSION || "306cdee7-bf95-42f0-b07b-6f9509436c37"
+// Auto-session: chat.sakana.ai memakai Firebase Auth (tenant anonim). Session
+// `sakana-chat` dibuat otomatis tanpa login/cookie browser dengan: Firebase
+// anonymous signUp (WAJIB sertakan tenantId) → POST /api/auth/login (idToken)
+// → server set cookie sakana-chat. Cookie di-cache & di-refresh bila 401.
+// Override manual tetap bisa lewat ?session= atau env SAKANA_SESSION.
+const FIREBASE_KEY = "AIzaSyBIJuyUokxGiETY0Nu3hQNC1dMadHyf_I4"
+const FIREBASE_TENANT = "sakana-talk-prd-pvl72"
+
+const MAX_FILE_BYTES = 15 * 1024 * 1024
+const MAX_FILES = 4
+
+let cachedSession = null
 
 function baseHeaders(session) {
     return {
@@ -15,6 +22,57 @@ function baseHeaders(session) {
         "Referer": `${BASE}/`,
         "Cookie": `sakana-chat=${session}`
     }
+}
+
+function httpError(message, status) {
+    const e = new Error(message)
+    e.status = status
+    return e
+}
+
+// Buat session anonim baru via Firebase → /api/auth/login, balikannya cookie value.
+async function mintSession() {
+    const fb = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_KEY}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Origin": BASE, "Referer": `${BASE}/` },
+        body: JSON.stringify({ returnSecureToken: true, tenantId: FIREBASE_TENANT })
+    })
+    const fbData = await fb.json().catch(() => ({}))
+    if (!fb.ok || !fbData.idToken) throw new Error("Gagal registrasi sesi anonim (Firebase)")
+
+    const login = await fetch(`${BASE}/api/auth/login`, {
+        method: "POST",
+        headers: { ...baseHeaders(""), "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ idToken: fbData.idToken })
+    })
+    const cookies = login.headers.getSetCookie?.() ?? [login.headers.get("set-cookie")].filter(Boolean)
+    const session = cookies.map(c => c.match(/sakana-chat=([^;]+)/)?.[1]).filter(Boolean)[0]
+    if (!login.ok || !session) throw new Error("Gagal membuat sesi (login ditolak)")
+    return session
+}
+
+async function getSession(override) {
+    if (override) return override
+    if (process.env.SAKANA_SESSION) return process.env.SAKANA_SESSION
+    if (cachedSession) return cachedSession
+    cachedSession = await mintSession()
+    return cachedSession
+}
+
+// Ambil file dari URL → { name, mime, b64 } untuk dilampirkan ke pesan.
+async function fetchFiles(urls) {
+    const out = []
+    for (const url of urls) {
+        const res = await fetch(url, { headers: { "User-Agent": UA }, redirect: "follow" })
+        if (!res.ok) throw new Error(`Gagal mengambil file (HTTP ${res.status}): ${url}`)
+        const buf = Buffer.from(await res.arrayBuffer())
+        if (buf.length > MAX_FILE_BYTES) throw new Error(`File terlalu besar (maks ${MAX_FILE_BYTES / 1024 / 1024}MB): ${url}`)
+        const mime = (res.headers.get("content-type") || "application/octet-stream").split(";")[0].trim()
+        let name = "file"
+        try { name = decodeURIComponent(new URL(url).pathname.split("/").filter(Boolean).pop() || "file") } catch {}
+        out.push({ name, mime, b64: buf.toString("base64") })
+    }
+    return out
 }
 
 // Buat percakapan baru, balikannya { conversationId, systemMessageId }
@@ -32,14 +90,13 @@ async function createConversation(prompt, { thinking, search, session }) {
     })
     if (!res.ok) {
         const msg = await res.json().then(d => d.message).catch(() => null)
-        if (res.status === 401) throw new Error("Session tidak valid / kedaluwarsa — perbarui cookie sakana-chat dari browser")
-        throw new Error(msg || `Gagal membuat percakapan (HTTP ${res.status})`)
+        throw httpError(msg || `Gagal membuat percakapan (HTTP ${res.status})`, res.status)
     }
     return res.json()
 }
 
-// Kirim pesan & baca stream NDJSON. Tiap baris = satu JSON message-update.
-async function streamMessage(conversationId, prompt, { thinking, search, session, systemMessageId }) {
+// Kirim pesan (+ file opsional) & baca stream NDJSON. Tiap baris = satu JSON event.
+async function streamMessage(conversationId, prompt, { thinking, search, session, systemMessageId, files }) {
     const data = JSON.stringify({
         inputs: prompt,
         id: systemMessageId,
@@ -52,6 +109,8 @@ async function streamMessage(conversationId, prompt, { thinking, search, session
     })
     const form = new FormData()
     form.append("data", data)
+    // Lampiran: field `files`, body = string base64, filename = `base64;<nama>`, mime asli.
+    for (const f of files) form.append("files", new Blob([f.b64], { type: f.mime }), `base64;${f.name}`)
 
     const res = await fetch(`${BASE}/conversation/${conversationId}`, {
         method: "POST",
@@ -60,8 +119,8 @@ async function streamMessage(conversationId, prompt, { thinking, search, session
     })
     if (!res.ok) {
         const msg = await res.json().then(d => d.message).catch(() => null)
-        if (res.status === 403) throw new Error(msg || "Input ditolak (dianggap tidak aman)")
-        throw new Error(msg || `Gagal mengirim pesan (HTTP ${res.status})`)
+        if (res.status === 403) throw httpError(msg || "Input ditolak (dianggap tidak aman)", 403)
+        throw httpError(msg || `Gagal mengirim pesan (HTTP ${res.status})`, res.status)
     }
 
     let answer = ""
@@ -131,13 +190,30 @@ async function cleanup(conversationId, session) {
     } catch {}
 }
 
-async function askSakana(prompt, { thinking = false, search = false, session = DEFAULT_SESSION } = {}) {
+async function runOnce(prompt, { thinking, search, session, files }) {
     const { conversationId, systemMessageId } = await createConversation(prompt, { thinking, search, session })
     try {
-        const out = await streamMessage(conversationId, prompt, { thinking, search, session, systemMessageId })
+        const out = await streamMessage(conversationId, prompt, { thinking, search, session, systemMessageId, files })
         return { ...out, conversationId }
     } finally {
         cleanup(conversationId, session)
+    }
+}
+
+async function askSakana(prompt, { thinking = false, search = false, sessionOverride = null, fileUrls = [] } = {}) {
+    const files = await fetchFiles(fileUrls)
+    const explicit = !!(sessionOverride || process.env.SAKANA_SESSION)
+    let session = await getSession(sessionOverride)
+    try {
+        return await runOnce(prompt, { thinking, search, session, files })
+    } catch (e) {
+        // Session auto kedaluwarsa → buang cache, mint ulang, coba sekali lagi.
+        if (e.status === 401 && !explicit) {
+            cachedSession = null
+            session = await getSession()
+            return await runOnce(prompt, { thinking, search, session, files })
+        }
+        throw e
     }
 }
 
@@ -148,7 +224,7 @@ export default {
         auth: false,
         tags: ["AI"],
         summary: "Chat dengan Sakana AI (Namazu)",
-        description: "Kirim pesan ke model Namazu lewat chat.sakana.ai tanpa login. Mendukung mode berpikir (thinking) dan pencarian web. Membutuhkan cookie session `sakana-chat` dari browser — bisa diatur lewat parameter `session`, env `SAKANA_SESSION`, atau memakai default bawaan.",
+        description: "Kirim pesan ke model Namazu lewat chat.sakana.ai tanpa login. Mendukung mode berpikir (thinking), pencarian web, dan lampiran file lewat URL (`fileUrl`). Session anonim dibuat otomatis — opsional override lewat `session` atau env `SAKANA_SESSION`. Catatan: thinking & search tidak bisa aktif bersamaan; lampiran file diekstrak sebagai teks/dokumen (bukan analisa gambar).",
         parameters: [
             {
                 name: "prompt",
@@ -161,21 +237,28 @@ export default {
                 name: "thinking",
                 in: "query",
                 required: false,
-                description: "Aktifkan mode berpikir mendalam (reasoning)",
+                description: "Aktifkan mode berpikir mendalam (reasoning). Tidak bisa digabung dengan search.",
                 schema: { type: "boolean", default: false }
             },
             {
                 name: "search",
                 in: "query",
                 required: false,
-                description: "Aktifkan pencarian web",
+                description: "Aktifkan pencarian web. Tidak bisa digabung dengan thinking.",
                 schema: { type: "boolean", default: false }
+            },
+            {
+                name: "fileUrl",
+                in: "query",
+                required: false,
+                description: "URL file yang dilampirkan (teks/dokumen). Bisa lebih dari satu, pisahkan dengan koma.",
+                schema: { type: "string", example: "https://example.com/dokumen.txt" }
             },
             {
                 name: "session",
                 in: "query",
                 required: false,
-                description: "Override cookie session `sakana-chat` dari browser (opsional)",
+                description: "Override cookie session `sakana-chat` (opsional; default dibuat otomatis)",
                 schema: { type: "string" }
             }
         ],
@@ -221,9 +304,13 @@ export default {
         if (thinking && search) {
             return res.status(400).json({ ok: false, error: "Mode thinking dan web search tidak bisa dipakai bersamaan, pilih salah satu" })
         }
-        const session = (req.query.session && req.query.session.trim()) || DEFAULT_SESSION
+        const fileUrls = (req.query.fileUrl || "").split(",").map(s => s.trim()).filter(Boolean)
+        if (fileUrls.length > MAX_FILES) {
+            return res.status(400).json({ ok: false, error: `Maksimal ${MAX_FILES} file per permintaan` })
+        }
+        const sessionOverride = (req.query.session && req.query.session.trim()) || null
         try {
-            const { answer, reasoning, sources, interrupted } = await askSakana(prompt.trim(), { thinking, search, session })
+            const { answer, reasoning, sources, interrupted } = await askSakana(prompt.trim(), { thinking, search, sessionOverride, fileUrls })
             res.json({ ok: true, answer, reasoning, sources, interrupted })
         } catch (e) {
             res.status(500).json({ ok: false, error: e.message })
