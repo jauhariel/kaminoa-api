@@ -2,13 +2,39 @@ import axios from "axios"
 
 const UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
 
-// Mobile Legends: butuh userId + zoneId. Sumber: mlbb-api.isan.eu.org/find
+// Mobile Legends: butuh userId + zoneId. Sumber utama gopay.co.id, fallback mlbb-api.isan.eu.org/find
 async function stalkML(id, zone) {
     if (!zone?.trim()) {
         const err = new Error("Mobile Legends butuh parameter 'zone' (zone ID). Contoh: ?game=ml&id=157228049&zone=2241")
         err.status = 400
         throw err
     }
+
+    // 1) gopay: nama game MOBILE_LEGENDS (pakai underscore — varian lain "Success" tapi data cuma echo id+zone)
+    try {
+        const { data } = await axios.get("https://gopay.co.id/games/v1/order/prepare/MOBILE_LEGENDS", {
+            params: { userId: id, zoneId: zone },
+            headers: { "User-Agent": UA, "Accept": "application/json" },
+            timeout: 12000,
+            validateStatus: () => true
+        })
+        const name = data?.data
+        // tolak false positive: gopay kadang balikin echo "<id><zone>" bukan nickname asli
+        if (data?.message === "Success" && name && name !== `${id}${zone}`) {
+            return {
+                game: "Mobile Legends: Bang Bang",
+                userId: String(id),
+                zoneId: String(zone),
+                nickname: name,
+                country: null,
+                countryCode: null
+            }
+        }
+    } catch {
+        // lanjut ke fallback
+    }
+
+    // 2) fallback isan — bonus info negara
     const { data } = await axios.get("https://mlbb-api.isan.eu.org/find", {
         params: { id, zone },
         headers: { "User-Agent": UA, "Accept": "application/json" },
