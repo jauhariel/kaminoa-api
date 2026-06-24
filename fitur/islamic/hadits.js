@@ -1,41 +1,45 @@
-import { readFileSync, existsSync, mkdirSync } from "node:fs"
-import { writeFile } from "node:fs/promises"
+import { existsSync, mkdirSync } from "node:fs"
+import { readFile, writeFile, rename } from "node:fs/promises"
 import { resolve, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const CACHE_DIR = resolve(__dirname, "../../assets/islamic/hadits")
-const GITHUB_RAW = "https://raw.githubusercontent.com/jauhariel/islamicdb/main/data/hadits"
+const GITHUB_RAW = "https://raw.githubusercontent.com/jauhariel/dataset/main/islamic/hadits"
 const INDEX_FILE = "_index.json"
 const KITAB_SLUGS = [
     "abu-dawud", "ahmad", "arbain", "bukhari", "bulughul-maram",
     "darimi", "ibnu-majah", "malik", "muslim", "nasai", "tirmidzi"
 ]
 
-function getFromCache(filename) {
+// Dedup fetch: kalau kitab yang belum ada di disk diminta beberapa request sekaligus, cukup satu
+// yang download (hindari dobel-fetch 13MB). Map ini hanya terisi sesaat selama fetch berjalan.
+const inflight = new Map()
+
+// Baca dari disk tiap request (tanpa cache memori — hemat RAM). Kalau belum ada, fetch lalu cache.
+async function getData(filename) {
     const filePath = resolve(CACHE_DIR, filename)
     if (existsSync(filePath)) {
-        return JSON.parse(readFileSync(filePath, "utf-8"))
+        return JSON.parse(await readFile(filePath, "utf-8"))
     }
-    return null
+    if (!inflight.has(filename)) {
+        inflight.set(filename, fetchAndCache(filename, filePath).finally(() => inflight.delete(filename)))
+    }
+    return inflight.get(filename)
 }
 
-async function fetchAndCache(filename) {
-    const url = `${GITHUB_RAW}/${filename}`
-    const res = await fetch(url)
+async function fetchAndCache(filename, filePath) {
+    const res = await fetch(`${GITHUB_RAW}/${filename}`)
     if (!res.ok) throw new Error(`Gagal mengambil data: ${res.status}`)
     const data = await res.json()
 
+    // tulis atomik: ke file temp dulu, lalu rename (rename atomik → hindari file korup separuh)
     if (!existsSync(CACHE_DIR)) mkdirSync(CACHE_DIR, { recursive: true })
-    await writeFile(resolve(CACHE_DIR, filename), JSON.stringify(data))
+    const tmp = resolve(CACHE_DIR, `.${filename}.${process.pid}.tmp`)
+    await writeFile(tmp, JSON.stringify(data))
+    await rename(tmp, filePath)
 
     return data
-}
-
-async function getData(filename) {
-    const cached = getFromCache(filename)
-    if (cached) return cached
-    return await fetchAndCache(filename)
 }
 
 export default {
@@ -120,7 +124,7 @@ export default {
 
             if (!kitab) {
                 const index = await getData(INDEX_FILE)
-                const sorted = index.sort((a, b) => a.name.localeCompare(b.name))
+                const sorted = [...index].sort((a, b) => a.name.localeCompare(b.name))
                 return res.json({ ok: true, result: sorted })
             }
 
@@ -145,18 +149,16 @@ export default {
             }
 
             if (search) {
-                const q = search.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
-                const filtered = data.hadits.filter(h => {
-                    const id = (h.id || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
-                    return id.includes(q)
-                })
+                const norm = s => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+                const q = norm(search)
+                const filtered = data.hadits.filter(h => norm(h.id).includes(q) || norm(h.judul).includes(q))
                 return res.json({
                     ok: true,
                     result: {
                         kitab: data.name,
                         total: data.total,
                         count: filtered.length,
-                        hadits: filtered.map(h => ({ no: h.number }))
+                        hadits: filtered.map(h => ({ no: h.number, judul: h.judul }))
                     }
                 })
             }
