@@ -5,3 +5,6 @@ package-lock.json
 # Data hadits cache (di-fetch dari GitHub & di-cache lokal)
 assets/islamic/hadits/*.json
 !assets/islamic/hadits/.gitkeep
+
+# Data wilayah cache (di-fetch dari GitHub & di-cache lokal)
+assets/tools/wilayah.json
