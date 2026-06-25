@@ -7,8 +7,14 @@ const AGENT_ID = "namazu"
 // anonymous signUp (WAJIB sertakan tenantId) → POST /api/auth/login (idToken)
 // → server set cookie sakana-chat. Cookie di-cache & di-refresh bila 401.
 // Override manual tetap bisa lewat ?session= atau env SAKANA_SESSION.
-const FIREBASE_KEY = "AIzaSyBIJuyUokxGiETY0Nu3hQNC1dMadHyf_I4"
-const FIREBASE_TENANT = "sakana-talk-prd-pvl72"
+//
+// Nilai Firebase di bawah adalah nilai PUBLIK dari bundle web Sakana (bukan
+// rahasia). Dipakai sbg default cepat; bila suatu saat Sakana merotasinya
+// sehingga mint session gagal, nilai baru di-scrape otomatis dari bundle
+// (discoverFirebaseConfig) sekali per proses lalu dipakai.
+let FIREBASE_KEY = "AIzaSyBIJuyUokxGiETY0Nu3hQNC1dMadHyf_I4"
+let FIREBASE_TENANT = "sakana-talk-prd-pvl72"
+let configDiscovered = false
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024
 const MAX_FILES = 4
@@ -30,12 +36,38 @@ function httpError(message, status) {
     return e
 }
 
-// Buat session anonim baru via Firebase → /api/auth/login, balikannya cookie value.
-async function mintSession() {
-    const fb = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_KEY}`, {
+// Scrape Firebase apiKey & tenantId dari bundle web Sakana (homepage → app.js →
+// chunks). Dipakai sbg fallback bila nilai default sudah dirotasi. Sekali jalan.
+async function discoverFirebaseConfig() {
+    const html = await (await fetch(`${BASE}/`, { headers: { "User-Agent": UA } })).text()
+    const entry = html.match(/\/_app\/immutable\/entry\/app\.[A-Za-z0-9_-]+\.js/)?.[0]
+    if (!entry) throw new Error("entry bundle tidak ditemukan")
+    const appjs = await (await fetch(`${BASE}${entry}`, { headers: { "User-Agent": UA } })).text()
+    const chunks = [...new Set([...appjs.matchAll(/chunks\/[A-Za-z0-9._-]+\.js/g)].map(m => m[0]))]
+
+    const KEY_RE = /AIzaSy[0-9A-Za-z_-]{20,}/
+    const TEN_RE = /sakana-talk-[a-z]+-[a-z0-9]+/
+    let key = null, tenant = null, i = 0
+    const worker = async () => {
+        while (i < chunks.length && !(key && tenant)) {
+            const c = chunks[i++]
+            let js
+            try { js = await (await fetch(`${BASE}/_app/immutable/${c}`, { headers: { "User-Agent": UA } })).text() } catch { continue }
+            key = key || js.match(KEY_RE)?.[0]
+            tenant = tenant || js.match(TEN_RE)?.[0]
+        }
+    }
+    await Promise.all(Array.from({ length: 8 }, worker))
+    if (!key || !tenant) throw new Error("config Firebase tidak ditemukan di bundle")
+    return { key, tenant }
+}
+
+// Satu kali registrasi+login pakai key/tenant tertentu → balikannya cookie value.
+async function mintSessionWith(key, tenant) {
+    const fb = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${key}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Origin": BASE, "Referer": `${BASE}/` },
-        body: JSON.stringify({ returnSecureToken: true, tenantId: FIREBASE_TENANT })
+        body: JSON.stringify({ returnSecureToken: true, tenantId: tenant })
     })
     const fbData = await fb.json().catch(() => ({}))
     if (!fb.ok || !fbData.idToken) throw new Error("Gagal registrasi sesi anonim (Firebase)")
@@ -49,6 +81,22 @@ async function mintSession() {
     const session = cookies.map(c => c.match(/sakana-chat=([^;]+)/)?.[1]).filter(Boolean)[0]
     if (!login.ok || !session) throw new Error("Gagal membuat sesi (login ditolak)")
     return session
+}
+
+// Buat session anonim. Coba key/tenant default dulu; bila gagal & belum pernah,
+// scrape config terbaru dari bundle (self-healing) lalu coba sekali lagi.
+async function mintSession() {
+    try {
+        return await mintSessionWith(FIREBASE_KEY, FIREBASE_TENANT)
+    } catch (e) {
+        if (configDiscovered) throw e
+        configDiscovered = true
+        let cfg
+        try { cfg = await discoverFirebaseConfig() } catch { throw e }
+        FIREBASE_KEY = cfg.key
+        FIREBASE_TENANT = cfg.tenant
+        return await mintSessionWith(FIREBASE_KEY, FIREBASE_TENANT)
+    }
 }
 
 async function getSession(override) {
