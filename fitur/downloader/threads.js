@@ -2,8 +2,41 @@ import axios from "axios"
 import * as cheerio from "cheerio"
 
 // Threads me-render og-meta + JSON (video_versions) hanya untuk UA crawler.
-// UA Googlebot membuat server mengembalikan HTML berisi data lengkap (tanpa login).
-const UA = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+// Hanya Googlebot/bingbot yg mengembalikan video_versions (UA biasa/Yandex/Applebot tidak).
+// Dirotasi + retry untuk meredam rate-limit per-IP (HTTP 429).
+const UAS = [
+    "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+    "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+    "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
+]
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// Ambil HTML dengan rotasi UA crawler; ulangi saat 429/5xx (rate-limit Meta per-IP).
+async function fetchHtml(url) {
+    let last
+    for (let i = 0; i < UAS.length; i++) {
+        const { status, data } = await axios.get(url, {
+            headers: {
+                "user-agent": UAS[i],
+                accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "accept-language": "en-US,en;q=0.9",
+            },
+            timeout: 25000,
+            validateStatus: () => true,
+        })
+        if (status === 200) return data
+        last = status
+        if (status === 429 || status >= 500) {
+            if (i < UAS.length - 1) await sleep(800 * (i + 1))
+            continue
+        }
+        break // 4xx lain (mis. 404) → tidak perlu retry
+    }
+    throw new Error(last === 429
+        ? "Rate limit Threads (429) — coba lagi beberapa saat"
+        : `Threads mengembalikan status ${last}`)
+}
 
 // Telusuri JSON kompleks Threads secara rekursif untuk url video pertama.
 function findVideoUrl(data) {
@@ -38,14 +71,7 @@ function parseAuthor(ogTitle, url) {
 }
 
 async function threads(postUrl) {
-    const { data: html } = await axios.get(postUrl, {
-        headers: {
-            "user-agent": UA,
-            accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "accept-language": "en-US,en;q=0.9",
-        },
-        timeout: 25000,
-    })
+    const html = await fetchHtml(postUrl)
     const $ = cheerio.load(html)
     const og = (p) => $(`meta[property="og:${p}"]`).attr("content") || null
 
