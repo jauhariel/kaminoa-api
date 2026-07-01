@@ -41,6 +41,7 @@ async function getXToken() {
 // Parse hasil search dari halaman /search/?q=...&x=...
 function parseSearchResults(html) {
     const songs = [], artists = [], lyrics = []
+    let _fallback = false
 
     // Panel Song results
     const songPanel = html.match(/<b>Song results:<\/b>[\s\S]*?<\/table>/i)
@@ -51,6 +52,31 @@ function parseSearchResults(html) {
         while ((m = re.exec(songPanel[0])) !== null) {
             const artist = m[3].trim().replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
             songs.push({ url: m[1], title: m[2].trim(), artist })
+        }
+
+        // Fallback: kalau regex utama ga dapet apa-apa, coba pola lebih simpel
+        if (songs.length === 0) {
+            const fbRe = /<a href="(https:\/\/www\.azlyrics\.com\/lyrics\/[^"]+\.html)">[^<]*<b>([^<]+)<\/b>\s*-\s*<b>([^<]+)<\/b>/gi
+            while ((m = fbRe.exec(songPanel[0])) !== null) {
+                songs.push({ url: m[1], title: m[2].trim(), artist: m[3].trim() })
+            }
+        }
+
+        // Fallback 2: cari link lyrics apa aja + text dalam <a>
+        if (songs.length === 0) {
+            const fb2Re = /<a href="(https:\/\/www\.azlyrics\.com\/lyrics\/[^"]+\.html)">([\s\S]*?)<\/a>/gi
+            while ((m = fb2Re.exec(songPanel[0])) !== null) {
+                const text = m[2].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim()
+                // Coba split: "N. Title - Artist" atau "N. Artist - Title"
+                const clean = text.replace(/^\d+\.\s*/, "")
+                const dashIdx = clean.lastIndexOf(" - ")
+                if (dashIdx > 0) {
+                    songs.push({ url: m[1], title: clean.substring(0, dashIdx).trim(), artist: clean.substring(dashIdx + 3).trim() })
+                } else {
+                    songs.push({ url: m[1], title: clean, artist: "" })
+                }
+            }
+            if (songs.length > 0) _fallback = true
         }
     }
 
@@ -76,6 +102,7 @@ function parseSearchResults(html) {
         }
     }
 
+    if (_fallback) songs._fallback = true
     return { songs, artists, lyrics }
 }
 
@@ -87,7 +114,16 @@ async function searchPage(query) {
         headers: { "user-agent": UA, "accept-language": "en-US,en;q=0.9" },
     })
     const results = parseSearchResults(html)
-    results._debug = { xSource: source, xHash: x.substring(0, 8) + "..." }
+    results._debug = {
+        xSource: source,
+        xHash: x.substring(0, 8) + "...",
+        // Sample HTML kalo kosong — buat diagnosa
+        _htmlLen: html.length,
+        _hasSongPanel: /Song results/i.test(html),
+        _hasArtistPanel: /Artist results/i.test(html),
+        _hasTable: /<table/i.test(html),
+        _title: (html.match(/<title>([^<]+)<\/title>/i) || [])[1] || "",
+    }
     return results
 }
 
@@ -330,18 +366,24 @@ export default {
 
             // Cari via search page (HTML) — comprehensive
             let results = await searchPage(query)
+            let debugPage = results._debug || {}
 
             // Fallback ke suggest API kalau search page kosong
             if (!results.songs.length && !results.artists.length) {
                 results = await searchSuggest(query)
+                results._debug = { ...debugPage, ...results._debug, _fellback: "suggest" }
             }
 
             // Retry: kalau masih kosong, invalidate cache x & coba sekali lagi
             if (!results.songs.length && !results.artists.length) {
                 cachedX = null
-                results = await searchPage(query)
-                if (!results.songs.length && !results.artists.length) {
+                const retry = await searchPage(query)
+                debugPage = retry._debug || {}
+                if (!retry.songs.length && !retry.artists.length) {
                     results = await searchSuggest(query)
+                    results._debug = { ...debugPage, ...results._debug, _fellback: "suggest", _retried: true }
+                } else {
+                    results = retry
                 }
             }
 
@@ -385,6 +427,7 @@ export default {
                     ok: true,
                     ...lyricResult,
                     url: first.url,
+                    _debug: debug,
                     otherResults: {
                         songs: results.songs.slice(1, 6),
                         artists: results.artists.slice(0, 3),
