@@ -3,99 +3,158 @@ import axios from "axios"
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
 const BASE = "https://www.azlyrics.com"
 
-// Slugify untuk URL azlyrics: lowercase, hapus spasi & karakter non-alfanumerik
-function slug(text) {
-    return text
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, "")
-}
+// Cache x token dari geo.js — statis per region, jarang berubah
+let cachedX = null
+let xExpiry = 0
+const X_TTL = 3600_000 // 1 jam
 
-// Ekstrak daftar lagu dari halaman artis azlyrics.
-// Struktur: <div class="listalbum-item"><a href="/lyrics/.../....html" target="_blank">Judul</a></div>
-function parseSongList(html) {
-    const songs = []
-    const re = /<div class="listalbum-item">\s*<a href="(\/lyrics\/[^"]+\.html)"[^>]*>([^<]+)<\/a>/gi
-    let m
-    while ((m = re.exec(html)) !== null) {
-        songs.push({ title: m[2].trim(), url: BASE + m[1] })
-    }
-    return songs
-}
+async function getXToken() {
+    if (cachedX && Date.now() < xExpiry) return cachedX
 
-// Cari URL lirik berdasarkan judul lagu saja via Google "I'm Feeling Lucky".
-// Google me-redirect melalui /url?q=... → redirect-notice → extract link azlyrics.
-async function searchByTitle(query) {
-    const searchUrl =
-        `https://www.google.com/search?q=site%3Aazlyrics.com+${encodeURIComponent(query)}&btnI=1&hl=en`
-
-    const { data: html } = await axios.get(searchUrl, {
-        headers: { "user-agent": UA, "accept-language": "en-US,en;q=0.9" },
-        maxRedirects: 5,
-    })
-
-    // Ekstrak URL azlyrics dari redirect notice / halaman hasil
-    // Format 1: <a href="https://www.azlyrics.com/lyrics/...">
-    const m = html.match(/href="(https:\/\/www\.azlyrics\.com\/lyrics\/[^"]+\.html)"/i)
-    if (m) return m[1]
-
-    // Format 2: meta refresh
-    const meta = html.match(/URL=(https:\/\/www\.azlyrics\.com\/lyrics\/[^"]+\.html)/i)
-    if (meta) return meta[1]
-
-    return null
-}
-async function fetchArtistPage(artistName) {
-    const s = slug(artistName)
-    const first = s.charAt(0)
-    if (!first) throw new Error("Nama artis tidak valid")
-
-    // Coba first-letter langsung
-    const url = `${BASE}/${first}/${s}.html`
     try {
-        const { data } = await axios.get(url, {
-            headers: { "user-agent": UA, "accept-language": "en-US,en;q=0.9" },
+        const { data } = await axios.get(`${BASE}/geo.js`, {
+            headers: { "user-agent": UA, referer: `${BASE}/search/` },
         })
-        return { html: data, url }
-    } catch (e) {
-        if (e.response?.status !== 404) throw e
-    }
+        const m = data.match(/setAttribute\("value",\s*"([a-f0-9]{64})"\)/)
+        if (m) {
+            cachedX = m[1]
+            xExpiry = Date.now() + X_TTL
+            return cachedX
+        }
+    } catch {}
 
-    // Fallback: telusuri semua halaman index A-Z cari slug artis
-    // Cek beberapa variasi: prefix yang sama, dsb
-    throw new Error(
-        `Halaman artis tidak ditemukan di ${url}. Coba pakai parameter url langsung.`
-    )
+    // Fallback statis — nilai dari geo.js per Juli 2026 (region ID)
+    cachedX = "83d477b04d73c0db98162b56069d08649a5101fadd9b0b642201ec60d9af2260"
+    xExpiry = Date.now() + X_TTL
+    return cachedX
 }
 
-// Ekstrak lirik dari halaman lyrics azlyrics.
-function extractLyrics(html, fallbackArtist, fallbackTitle) {
-    // Coba beberapa pola title:
-    // 1. English: "Artist - Title Lyrics | AZLyrics.com"
-    // 2. Indo:    "Artist - Lirik lagu "Title" | Lyrics at AZLyrics.com"
-    let artist = null
-    let songTitle = null
+// Parse hasil search dari halaman /search/?q=...&x=...
+function parseSearchResults(html) {
+    const songs = [], artists = [], lyrics = []
 
-    const rawTitle = (html.match(/<title>([\s\S]*?)<\/title>/i) || [])[1] || ""
-
-    // Pola English
-    const enMatch = rawTitle.match(/^(.*?)\s*-\s*(.*?)\s*Lyrics\s*\|\s*AZLyrics/i)
-    if (enMatch) {
-        artist = enMatch[1].trim()
-        songTitle = enMatch[2].trim()
-    } else {
-        // Pola Indo: "Artist - Lirik lagu "Title" | Lyrics at AZLyrics.com"
-        const idMatch = rawTitle.match(/^(.*?)\s*-\s*Lirik\s+lagu\s*"([^"]*)"\s*\|\s*Lyrics\s+at\s+AZLyrics/i)
-        if (idMatch) {
-            artist = idMatch[1].trim()
-            songTitle = idMatch[2].trim()
+    // Panel Song results
+    const songPanel = html.match(/<b>Song results:<\/b>[\s\S]*?<\/table>/i)
+    if (songPanel) {
+        // Format: <a href="...">N. <span><b>"Title"</b>[optional text]</span> - <b>Artist</b></a>
+        const re = /<a href="(https:\/\/www\.azlyrics\.com\/lyrics\/[^"]+\.html)">[^<]*<span><b>"?([^"<]+)"?<\/b>[^<]*<\/span>\s*-\s*<b>([^<]+)<\/b>/gi
+        let m
+        while ((m = re.exec(songPanel[0])) !== null) {
+            const artist = m[3].trim().replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+            songs.push({ url: m[1], title: m[2].trim(), artist })
         }
     }
 
-    // Fallback ke parameter
-    if (!artist && fallbackArtist) artist = fallbackArtist
-    if (!songTitle && fallbackTitle) songTitle = fallbackTitle
+    // Panel Artist results
+    const artistPanel = html.match(/<b>Artist results:<\/b>[\s\S]*?<\/table>/i)
+    if (artistPanel) {
+        const re = /<a href="((?:https:)?\/\/www\.azlyrics\.com\/[a-z0-9]\/[^"]+\.html)">[^<]*<span><b>([^<]+)<\/b><\/span>/gi
+        let m
+        while ((m = re.exec(artistPanel[0])) !== null) {
+            const url = m[1].startsWith("http") ? m[1] : "https:" + m[1]
+            artists.push({ url, artist: m[2].trim() })
+        }
+    }
 
-    // Cari blok lirik: <div> setelah <b> judul, sebelum <!-- MxM
+    // Panel Lyrics results
+    const lyricsPanel = html.match(/<b>Lyrics results:<\/b>[\s\S]*?<\/table>/i)
+    if (lyricsPanel) {
+        const re = /<a href="(https:\/\/www\.azlyrics\.com\/lyrics\/[^"]+\.html)">[^<]*<span>([\s\S]*?)<\/span>/gi
+        let m
+        while ((m = re.exec(lyricsPanel[0])) !== null) {
+            const snippet = m[2].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').trim()
+            lyrics.push({ url: m[1], snippet })
+        }
+    }
+
+    return { songs, artists, lyrics }
+}
+
+// Cari via /search/ HTML page
+async function searchPage(query) {
+    const x = await getXToken()
+    const { data: html } = await axios.get(`${BASE}/search/`, {
+        params: { q: query, x },
+        headers: { "user-agent": UA, "accept-language": "en-US,en;q=0.9" },
+    })
+    return parseSearchResults(html)
+}
+
+// Cari via /suggest/ API — JSON autocomplete
+async function searchSuggest(query) {
+    const x = await getXToken()
+    const { data } = await axios.get(`${BASE}/suggest/`, {
+        params: { q: query, x },
+        headers: { "user-agent": UA, "accept-language": "en-US,en;q=0.9", accept: "application/json" },
+    })
+
+    const songs = (data.songs || []).map(hit => {
+        const titleMatch = hit.autocomplete.match(/"([^"]+)"/)
+        const title = titleMatch ? titleMatch[1] : hit.autocomplete.replace(/^"/, "").replace(/"\s*-\s*.*$/, "").trim()
+        const artist = hit.autocomplete.replace(/^.*-\s*/, "").trim()
+        return { url: hit.url, title, artist }
+    })
+
+    return {
+        songs,
+        artists: (data.artists || []).map(a => ({ url: a.url, artist: a.autocomplete })),
+        lyrics: (data.lyrics || []).map(l => ({ url: l.url, snippet: l.autocomplete })),
+    }
+}
+
+// Cocokkan artist secara fuzzy — case-insensitive, substring, atau token match
+function artistMatches(resultArtist, queryArtist) {
+    const a = resultArtist.toLowerCase().trim()
+    const b = queryArtist.toLowerCase().trim()
+
+    // Exact match
+    if (a === b) return true
+    // Salah satu mengandung yang lain
+    if (a.includes(b) || b.includes(a)) return true
+    // Token-based: semua kata di query ada di artist
+    const tokens = b.split(/\s+/).filter(t => t.length > 1)
+    if (tokens.length > 0 && tokens.every(t => a.includes(t))) return true
+
+    return false
+}
+
+// Ekstrak lirik dari halaman lyrics
+function extractLyrics(html) {
+    let artist = null, songTitle = null
+    const rawTitle = (html.match(/<title>([\s\S]*?)<\/title>/i) || [])[1] || ""
+
+    // Pola English: "Artist - Title Lyrics | AZLyrics.com"
+    const enMatch = rawTitle.match(/^(.*?)\s*-\s*(.*?)\s*Lyrics\s*\|\s*AZLyrics/i)
+    if (enMatch) { artist = enMatch[1].trim(); songTitle = enMatch[2].trim() }
+
+    // Pola Indo: "Artist - Lirik lagu "Title" | Lyrics at AZLyrics.com"
+    if (!artist) {
+        const idMatch = rawTitle.match(/^(.*?)\s*-\s*Lirik\s+lagu\s*"([^"]*)"\s*\|\s*Lyrics\s+at\s+AZLyrics/i)
+        if (idMatch) { artist = idMatch[1].trim(); songTitle = idMatch[2].trim() }
+    }
+
+    // Pola Korea/other: Artist - "Title" 가사 | Lyrics at AZLyrics.com
+    if (!artist) {
+        const koMatch = rawTitle.match(/^(.*?)\s*-\s*"(.*?)"\s+[^|]+\|\s*Lyrics\s+at\s+AZLyrics/i)
+        if (koMatch) { artist = koMatch[1].trim(); songTitle = koMatch[2].trim() }
+    }
+
+    // Fallback generik
+    if (!artist) {
+        const parts = rawTitle.split(/\s*\|\s*/)
+        if (parts.length >= 2) {
+            const left = parts[0].trim()
+            const dashIdx = left.indexOf(" - ")
+            if (dashIdx > 0) {
+                artist = left.substring(0, dashIdx).trim()
+                songTitle = left.substring(dashIdx + 3).trim()
+                songTitle = songTitle.replace(/\s+(Lyrics|Lirik|Liedtext|Letras|Paroles|Testo|歌词|歌詞|가사|Texty|Текст)$/i, "").trim()
+                songTitle = songTitle.replace(/^"(.*)"$/, "$1").trim()
+            }
+        }
+    }
+
+    // Cari blok lirik: <div> setelah </b> terakhir sebelum <!-- MxM
     const bEnd = html.lastIndexOf("</b>", html.indexOf("<!-- MxM"))
     if (bEnd === -1) return { artist, title: songTitle, lyrics: null }
 
@@ -112,7 +171,6 @@ function extractLyrics(html, fallbackArtist, fallbackTitle) {
     // Split berdasarkan label bahasa: <i>[Nama:]</i>
     const sections = {}
     const sectionPattern = /<i>\s*\[([^\]]+?)\]:?\s*<\/i>\s*<br>\s*([\s\S]*?)(?=<i>\s*\[|$)/gi
-
     let match
     while ((match = sectionPattern.exec(block)) !== null) {
         const lang = match[1].toLowerCase().replace(/:$/, "").trim()
@@ -120,69 +178,30 @@ function extractLyrics(html, fallbackArtist, fallbackTitle) {
             .replace(/\r?\n/g, "")
             .replace(/<br\s*\/?>/gi, "\n")
             .replace(/<[^>]+>/g, "")
-            .replace(/&amp;/g, "&")
-            .replace(/&lt;/g, "<")
-            .replace(/&gt;/g, ">")
-            .replace(/&quot;/g, '"')
-            .replace(/&#039;/g, "'")
-            .replace(/\n{3,}/g, "\n\n")
-            .trim()
+            .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+            .replace(/&quot;/g, '"').replace(/&#039;/g, "'")
+            .replace(/\n{3,}/g, "\n\n").trim()
         if (text) sections[lang] = text
     }
 
-    // Fallback: tidak ada label bahasa
     if (Object.keys(sections).length === 0) {
         let text = block
-            .replace(/\r?\n/g, "")
-            .replace(/<br\s*\/?>/gi, "\n")
+            .replace(/\r?\n/g, "").replace(/<br\s*\/?>/gi, "\n")
             .replace(/<[^>]+>/g, "")
-            .replace(/&amp;/g, "&")
-            .replace(/&lt;/g, "<")
-            .replace(/&gt;/g, ">")
-            .replace(/&quot;/g, '"')
-            .replace(/&#039;/g, "'")
-            .replace(/\n{3,}/g, "\n\n")
-            .trim()
+            .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+            .replace(/&quot;/g, '"').replace(/&#039;/g, "'")
+            .replace(/\n{3,}/g, "\n\n").trim()
         if (text) sections.default = text
     }
 
-    return {
-        artist,
-        title: songTitle,
-        lyrics: Object.keys(sections).length ? sections : null,
-    }
+    return { artist, title: songTitle, lyrics: Object.keys(sections).length ? sections : null }
 }
 
-async function scrapeLyrics(url, fallbackArtist, fallbackTitle) {
+async function scrapeLyrics(url) {
     const { data: html } = await axios.get(url, {
         headers: { "user-agent": UA, "accept-language": "en-US,en;q=0.9" },
     })
-    return extractLyrics(html, fallbackArtist, fallbackTitle)
-}
-
-// Cocokkan judul lagu dengan daftar lagu dari halaman artis.
-// 1. Exact match (case-insensitive)
-// 2. Slug match
-// 3. Contains match (judul mengandung query atau sebaliknya)
-function findSong(songs, query) {
-    const q = query.trim()
-    const qSlug = slug(q)
-
-    // 1. Exact case-insensitive
-    let match = songs.find(s => s.title.toLowerCase() === q.toLowerCase())
-    if (match) return match
-
-    // 2. Slug match
-    match = songs.find(s => slug(s.title) === qSlug)
-    if (match) return match
-
-    // 3. Contains
-    const qLower = q.toLowerCase()
-    match = songs.find(s => {
-        const tLower = s.title.toLowerCase()
-        return tLower.includes(qLower) || qLower.includes(tLower)
-    })
-    return match || null
+    return extractLyrics(html)
 }
 
 export default {
@@ -191,37 +210,41 @@ export default {
         path: "/search/azlyrics",
         auth: false,
         tags: ["Search"],
-        summary: "Scrape lirik lagu dari AZLyrics",
+        summary: "Cari & scrape lirik dari AZLyrics (search internal, tanpa Google)",
         description:
-            "Mengambil lirik lagu dari AZLyrics. Empat mode:\n" +
-            "- `url`: langsung scrape URL lirik\n" +
-            "- `artist` + `title`: cari artis lalu cocokkan judul lagu\n" +
-            "- `artist` saja: kembalikan daftar lagu artis tersebut\n" +
-            "- `title` saja: cari via Google ke halaman lirik pertama",
+            "Cari lirik langsung dari AZLyrics pakai search engine internal.\n" +
+            "- `?title=judul` — cari lagu & auto-scrape hasil pertama\n" +
+            "- `?title=judul&artist=nama` — cari lebih akurat dengan filter artist\n" +
+            "- `?title=judul&list=1` — tampilkan daftar hasil tanpa auto-scrape\n" +
+            "- `?url=...` — scrape langsung URL lirik (skip search)",
         parameters: [
             {
-                name: "url",
+                name: "title",
                 in: "query",
                 required: false,
-                description: "URL halaman lirik AZLyrics (opsional, prio atas artist+title)",
-                schema: {
-                    type: "string",
-                    example: "https://www.azlyrics.com/lyrics/kobokanaeru/firstlove.html",
-                },
+                description: "Judul lagu",
+                schema: { type: "string", example: "Mantra Hujan" },
             },
             {
                 name: "artist",
                 in: "query",
                 required: false,
-                description: "Nama artis/band (contoh: Kobo Kanaeru)",
+                description: "Nama artis/band (opsional, untuk hasil lebih akurat)",
                 schema: { type: "string", example: "Kobo Kanaeru" },
             },
             {
-                name: "title",
+                name: "url",
                 in: "query",
                 required: false,
-                description: "Judul lagu (contoh: Mantra Hujan). Bisa dipakai sendiri tanpa artist.",
-                schema: { type: "string", example: "Mantra Hujan" },
+                description: "URL langsung halaman lirik (skip search)",
+                schema: { type: "string", example: "https://www.azlyrics.com/lyrics/kobokanaeru/mantrahujan.html" },
+            },
+            {
+                name: "list",
+                in: "query",
+                required: false,
+                description: "Set ke 1 untuk menampilkan daftar hasil search tanpa auto-scrape lirik",
+                schema: { type: "string", example: "1" },
             },
         ],
         responses: {
@@ -232,17 +255,14 @@ export default {
                         schema: {
                             type: "object",
                             properties: {
-                                ok: { type: "boolean", example: true },
-                                artist: { type: "string", example: "Kobo Kanaeru" },
-                                title: { type: "string", example: "Mantra Hujan" },
+                                ok: { type: "boolean" },
+                                artist: { type: "string" },
+                                title: { type: "string" },
                                 url: { type: "string" },
-                                lyrics: {
+                                lyrics: { type: "object" },
+                                results: {
                                     type: "object",
-                                    description: "Key-value bahasa → teks lirik",
-                                },
-                                songs: {
-                                    type: "array",
-                                    description: "Daftar lagu (mode artist saja)",
+                                    description: "Daftar hasil search (mode list=1)",
                                 },
                             },
                         },
@@ -250,23 +270,21 @@ export default {
                 },
             },
             "400": { description: "Parameter tidak valid" },
-            "404": { description: "Artis/lagu tidak ditemukan" },
-            "500": { description: "Kesalahan server / gagal scrape" },
+            "404": { description: "Lagu tidak ditemukan" },
+            "500": { description: "Gagal scrape" },
         },
     },
 
     handler: async (req, res) => {
-        const url = (req.query.url || "").toString().trim()
-        const artist = (req.query.artist || "").toString().trim()
-        const title = (req.query.title || "").toString().trim()
+        const title = (req.query.title || "").trim()
+        const artist = (req.query.artist || "").trim()
+        const url = (req.query.url || "").trim()
+        const listOnly = req.query.list === "1" || req.query.list === "true"
 
-        // Mode 1: URL langsung
+        // Mode URL langsung
         if (url) {
             if (!/^https?:\/\/(www\.)?azlyrics\.com\/lyrics\//i.test(url)) {
-                return res.status(400).json({
-                    ok: false,
-                    error: "URL harus halaman lirik AZLyrics (https://www.azlyrics.com/lyrics/...)",
-                })
+                return res.status(400).json({ ok: false, error: "URL harus dari azlyrics.com/lyrics/..." })
             }
             try {
                 const result = await scrapeLyrics(url)
@@ -287,85 +305,84 @@ export default {
             }
         }
 
-        // Mode 4: title saja → cari via Google
-        if (!artist && title) {
-            try {
-                const foundUrl = await searchByTitle(title)
-                if (!foundUrl) {
-                    return res.status(404).json({
-                        ok: false,
-                        error: `Lirik untuk "${title}" tidak ditemukan di AZLyrics.`,
-                        hint: "Coba tambahkan parameter artist untuk hasil lebih akurat.",
-                    })
-                }
-                const result = await scrapeLyrics(foundUrl, null, title)
-                if (!result.lyrics) {
-                    return res.status(500).json({
-                        ok: false,
-                        error: "Gagal mengekstrak lirik. Mungkin struktur halaman berubah.",
-                        artist: result.artist,
-                        title: result.title,
-                    })
-                }
-                return res.json({ ok: true, ...result, url: foundUrl })
-            } catch (e) {
-                return res.status(500).json({ ok: false, error: e.message })
-            }
-        }
-
-        // Mode 2 & 3: artist (+ title optional)
-        if (!artist) {
+        if (!title) {
             return res.status(400).json({
                 ok: false,
-                error: "Isi parameter url, artist, atau title. Contoh: ?title=Mantra Hujan atau ?artist=Kobo Kanaeru&title=Mantra Hujan",
+                error: "Parameter `title` diperlukan. Contoh: ?title=Mantra Hujan atau ?title=Overdose&artist=EXO",
             })
         }
 
         try {
-            const { html: artistHtml } = await fetchArtistPage(artist)
-            const songs = parseSongList(artistHtml)
+            // Gabung title + artist buat query search
+            const query = artist ? `${title} ${artist}` : title
 
-            if (!songs.length) {
-                return res.status(404).json({
-                    ok: false,
-                    error: `Artis "${artist}" ditemukan tapi tidak ada daftar lagu.`,
-                })
+            // Cari via search page (HTML) — comprehensive
+            let results = await searchPage(query)
+
+            // Fallback ke suggest API kalau search page kosong
+            if (!results.songs.length && !results.artists.length) {
+                results = await searchSuggest(query)
             }
 
-            // Mode 3: artist saja → kembalikan daftar lagu
-            if (!title) {
-                // Ambil nama artis asli dari halaman
-                const titleMatch = artistHtml.match(/<title>(.*?) Lyrics<\/title>/i)
-                const realArtist = titleMatch?.[1]?.trim() || artist
+            // Kalau ada artist filter, saring hasil berdasarkan kecocokan artist
+            if (artist && results.songs.length > 0) {
+                const matched = results.songs.filter(s => artistMatches(s.artist, artist))
+                const unmatched = results.songs.filter(s => !artistMatches(s.artist, artist))
+                results.songs = [...matched, ...unmatched]
+            }
+
+            // Mode list — tampilkan semua hasil
+            if (listOnly) {
+                const total = results.songs.length + results.artists.length + results.lyrics.length
+                if (total === 0) {
+                    return res.status(404).json({
+                        ok: false,
+                        error: `Tidak ada hasil untuk "${query}".`,
+                        hint: "Coba kata kunci lain.",
+                    })
+                }
+                return res.json({ ok: true, query, total, ...results })
+            }
+
+            // Mode auto-scrape — ambil hasil song pertama (yang sudah difilter kalau ada artist)
+            if (results.songs.length > 0) {
+                const first = results.songs[0]
+                const lyricResult = await scrapeLyrics(first.url)
+                if (!lyricResult.lyrics) {
+                    return res.status(500).json({
+                        ok: false,
+                        error: "Gagal mengekstrak lirik dari hasil pertama.",
+                        artist: lyricResult.artist,
+                        title: lyricResult.title,
+                        url: first.url,
+                    })
+                }
                 return res.json({
                     ok: true,
-                    artist: realArtist,
-                    total: songs.length,
-                    songs,
+                    ...lyricResult,
+                    url: first.url,
+                    otherResults: {
+                        songs: results.songs.slice(1, 6),
+                        artists: results.artists.slice(0, 3),
+                    },
                 })
             }
 
-            // Mode 2: artist + title → cari & scrape
-            const song = findSong(songs, title)
-            if (!song) {
+            // Ada artist results tapi ga ada song
+            if (results.artists.length > 0) {
                 return res.status(404).json({
                     ok: false,
-                    error: `Lagu "${title}" tidak ditemukan untuk artis "${artist}".`,
-                    hint: "Coba cek daftar lagu dengan parameter artist saja.",
-                    songs: songs.map(s => s.title),
+                    error: `Artis "${results.artists[0].artist}" ditemukan tapi tidak ada lagu yang cocok.`,
+                    hint: "Coba tambahkan judul lagu, atau pakai ?list=1 untuk lihat semua hasil.",
+                    artists: results.artists.slice(0, 5),
                 })
             }
 
-            const result = await scrapeLyrics(song.url, artist, song.title)
-            if (!result.lyrics) {
-                return res.status(500).json({
-                    ok: false,
-                    error: "Gagal mengekstrak lirik. Mungkin struktur halaman berubah.",
-                    artist: result.artist,
-                    title: result.title,
-                })
-            }
-            return res.json({ ok: true, ...result, url: song.url })
+            return res.status(404).json({
+                ok: false,
+                error: `Lirik untuk "${query}" tidak ditemukan.`,
+                hint: "Coba tambahkan nama artist. Contoh: ?title=Overdose&artist=EXO",
+            })
         } catch (e) {
             return res.status(500).json({ ok: false, error: e.message })
         }
