@@ -9,24 +9,33 @@ let xExpiry = 0
 const X_TTL = 3600_000 // 1 jam
 
 async function getXToken() {
-    if (cachedX && Date.now() < xExpiry) return cachedX
+    if (cachedX && Date.now() < xExpiry) return { x: cachedX, source: "cache" }
 
-    try {
-        const { data } = await axios.get(`${BASE}/geo.js`, {
-            headers: { "user-agent": UA, referer: `${BASE}/search/` },
-        })
-        const m = data.match(/setAttribute\("value",\s*"([a-f0-9]{64})"\)/)
-        if (m) {
-            cachedX = m[1]
-            xExpiry = Date.now() + X_TTL
-            return cachedX
-        }
-    } catch {}
+    const FALLBACK = "83d477b04d73c0db98162b56069d08649a5101fadd9b0b642201ec60d9af2260"
 
-    // Fallback statis — nilai dari geo.js per Juli 2026 (region ID)
-    cachedX = "83d477b04d73c0db98162b56069d08649a5101fadd9b0b642201ec60d9af2260"
+    // Coba fetch geo.js — file ini inject hidden input x ke form search
+    const geoUrls = [
+        { url: `${BASE}/geo.js`, headers: { "user-agent": UA, referer: `${BASE}/search/` } },
+        { url: `${BASE}/geo.js`, headers: { "user-agent": UA } }, // tanpa referer
+    ]
+
+    for (const { url, headers } of geoUrls) {
+        try {
+            const { data } = await axios.get(url, { headers, timeout: 5000 })
+            // Cari setAttribute("value", "...") — panjang hash bisa bervariasi
+            const m = data.match(/setAttribute\s*\(\s*"value"\s*,\s*"([a-f0-9]+)"\s*\)/)
+            if (m) {
+                cachedX = m[1]
+                xExpiry = Date.now() + X_TTL
+                return { x: cachedX, source: "geo.js" }
+            }
+        } catch {}
+    }
+
+    // Fallback statis — nilai dari geo.js region ID per Juli 2026
+    cachedX = FALLBACK
     xExpiry = Date.now() + X_TTL
-    return cachedX
+    return { x: cachedX, source: "fallback" }
 }
 
 // Parse hasil search dari halaman /search/?q=...&x=...
@@ -72,17 +81,19 @@ function parseSearchResults(html) {
 
 // Cari via /search/ HTML page
 async function searchPage(query) {
-    const x = await getXToken()
+    const { x, source } = await getXToken()
     const { data: html } = await axios.get(`${BASE}/search/`, {
         params: { q: query, x },
         headers: { "user-agent": UA, "accept-language": "en-US,en;q=0.9" },
     })
-    return parseSearchResults(html)
+    const results = parseSearchResults(html)
+    results._debug = { xSource: source, xHash: x.substring(0, 8) + "..." }
+    return results
 }
 
 // Cari via /suggest/ API — JSON autocomplete
 async function searchSuggest(query) {
-    const x = await getXToken()
+    const { x, source } = await getXToken()
     const { data } = await axios.get(`${BASE}/suggest/`, {
         params: { q: query, x },
         headers: { "user-agent": UA, "accept-language": "en-US,en;q=0.9", accept: "application/json" },
@@ -99,6 +110,7 @@ async function searchSuggest(query) {
         songs,
         artists: (data.artists || []).map(a => ({ url: a.url, artist: a.autocomplete })),
         lyrics: (data.lyrics || []).map(l => ({ url: l.url, snippet: l.autocomplete })),
+        _debug: { xSource: source, xHash: x.substring(0, 8) + "..." },
     }
 }
 
@@ -324,6 +336,17 @@ export default {
                 results = await searchSuggest(query)
             }
 
+            // Retry: kalau masih kosong, invalidate cache x & coba sekali lagi
+            if (!results.songs.length && !results.artists.length) {
+                cachedX = null
+                results = await searchPage(query)
+                if (!results.songs.length && !results.artists.length) {
+                    results = await searchSuggest(query)
+                }
+            }
+
+            const debug = results._debug || {}
+
             // Kalau ada artist filter, saring hasil berdasarkan kecocokan artist
             if (artist && results.songs.length > 0) {
                 const matched = results.songs.filter(s => artistMatches(s.artist, artist))
@@ -339,6 +362,7 @@ export default {
                         ok: false,
                         error: `Tidak ada hasil untuk "${query}".`,
                         hint: "Coba kata kunci lain.",
+                        _debug: debug,
                     })
                 }
                 return res.json({ ok: true, query, total, ...results })
@@ -375,6 +399,7 @@ export default {
                     error: `Artis "${results.artists[0].artist}" ditemukan tapi tidak ada lagu yang cocok.`,
                     hint: "Coba tambahkan judul lagu, atau pakai ?list=1 untuk lihat semua hasil.",
                     artists: results.artists.slice(0, 5),
+                    _debug: debug,
                 })
             }
 
@@ -382,6 +407,7 @@ export default {
                 ok: false,
                 error: `Lirik untuk "${query}" tidak ditemukan.`,
                 hint: "Coba tambahkan nama artist. Contoh: ?title=Overdose&artist=EXO",
+                _debug: debug,
             })
         } catch (e) {
             return res.status(500).json({ ok: false, error: e.message })
