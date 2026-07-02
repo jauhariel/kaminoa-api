@@ -39,21 +39,14 @@ export default {
                 name: "thinking",
                 in: "query",
                 required: false,
-                description: "Mode berpikir: `auto` (default, model decide), `fast` (tanpa thinking, respons cepat), `think` (thinking mendalam). Khusus mode chat.",
-                schema: { type: "string", enum: ["auto", "fast", "think"], default: "auto" }
+                description: "Mode berpikir: `fast` (default, tanpa thinking), `auto` (model decide), `think` (thinking mendalam). Khusus mode chat.",
+                schema: { type: "string", enum: ["auto", "fast", "think"], default: "fast" }
             },
             {
                 name: "search",
                 in: "query",
                 required: false,
                 description: "Aktifkan web search. Default true untuk chat.",
-                schema: { type: "boolean", default: true }
-            },
-            {
-                name: "stream",
-                in: "query",
-                required: false,
-                description: "Streaming respons via SSE (Server-Sent Events). Default true.",
                 schema: { type: "boolean", default: true }
             },
             {
@@ -73,7 +66,7 @@ export default {
         ],
         responses: {
             "200": {
-                description: "Respons berhasil (JSON untuk non-stream, SSE untuk stream)",
+                description: "Respons berhasil (JSON)",
                 content: {
                     "application/json": {
                         schema: {
@@ -91,9 +84,6 @@ export default {
                             }
                         }
                     },
-                    "text/event-stream": {
-                        schema: { type: "string", description: "SSE stream dengan phase: thinking_start, thinking, search_start, search_results, answer, done" }
-                    }
                 }
             },
             "400": {
@@ -115,9 +105,8 @@ export default {
         }
 
         const mode = req.query.mode || "chat"
-        const thinkingMode = ["fast", "auto", "think"].includes(req.query.thinking) ? req.query.thinking : "auto"
+        const thinkingMode = ["fast", "auto", "think"].includes(req.query.thinking) ? req.query.thinking : "fast"
         const search = req.query.search !== "false" && req.query.search !== "0"
-        const stream = req.query.stream !== "false" && req.query.stream !== "0"
 
         if (!["chat", "t2i", "t2v"].includes(mode)) {
             return res.status(400).json({ ok: false, error: "mode harus chat, t2i, atau t2v" })
@@ -132,17 +121,10 @@ export default {
                 thinking: thinkingMode,
                 search: mode === "chat" ? search : false,
                 size: size || (mode === "t2v" ? "16:9" : "1:1"),
-                fileUrls: mode !== "t2v" ? fileUrls : [],
-                stream: stream && mode === "chat",
-                res: stream && mode === "chat" ? res : undefined
+                fileUrls: mode !== "t2v" ? fileUrls : []
             }
 
             const result = await qwen.ask(prompt.trim(), opts)
-
-            if (result.type === "stream_done") {
-                // SSE stream sudah ditangani — res sudah di-write
-                return
-            }
 
             const body = { ok: true }
 
