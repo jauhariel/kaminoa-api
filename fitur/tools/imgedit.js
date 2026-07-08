@@ -7,10 +7,30 @@ const HDR = {
     referer: "https://imgedit.ai/",
     "user-agent": AGENT
 }
-const AES_KEY = Buffer.from("651cc172938d5b7799a23ac245e539a6", "utf-8")
-const AES_IV = Buffer.from("35e5cd2d684e5c65", "utf-8")
 const L1 = ["a","d","g","h","k","o","4","5","6","7","8"]
 const L2 = ["0","1","2","3","8","9","a","b","c","d","u","i","o","p","m","n"]
+
+let _aesKey = null
+let _aesIv = null
+
+async function fetchKeyFromBundle() {
+    if (_aesKey && _aesIv) return { key: _aesKey, iv: _aesIv }
+    const html = await (await fetch("https://imgedit.ai/", { headers: { "user-agent": AGENT } })).text()
+    const scripts = [...html.matchAll(/src="(\/_nuxt\/[^"]+\.js[^"]*)"/g)].map(m => m[1])
+    for (const src of scripts) {
+        try {
+            const js = await (await fetch("https://imgedit.ai" + src, { headers: { "user-agent": AGENT } })).text()
+            const keyMatch = js.match(/aesKey\s*=\s*"([0-9a-f]{32})"/)
+            const ivMatch = js.match(/iv\s*=\s*"([0-9a-f]{16})"/)
+            if (keyMatch && ivMatch) {
+                _aesKey = Buffer.from(keyMatch[1], "utf-8")
+                _aesIv = Buffer.from(ivMatch[1], "utf-8")
+                return { key: _aesKey, iv: _aesIv }
+            }
+        } catch {}
+    }
+    throw new Error("Gagal mengekstrak AES key dari bundle imgedit.ai")
+}
 
 function ekey() {
     let s = String(Math.floor(Math.random() * 3000) + 7000)
@@ -20,10 +40,11 @@ function ekey() {
     return s
 }
 
-function decrypt(data) {
+async function decrypt(data) {
     if (!data) return null
     try {
-        const dec = crypto.createDecipheriv("aes-256-cbc", AES_KEY, AES_IV)
+        const { key, iv } = await fetchKeyFromBundle()
+        const dec = crypto.createDecipheriv("aes-256-cbc", key, iv)
         const ct = Buffer.from(data, "base64")
         const out = Buffer.concat([dec.update(ct), dec.final()])
         return JSON.parse(out.toString("utf-8"))
@@ -53,7 +74,7 @@ async function uploadImage(dataUri) {
         method: "POST",
         body: JSON.stringify({ files_base64: dataUri })
     })
-    const payload = decrypt(json?.data)
+    const payload = await decrypt(json?.data)
     if (!payload || payload.code !== 0) throw new Error(`Upload gagal: ${payload?.msg || "unknown"}`)
     return payload.data.paths[0]
 }
@@ -70,7 +91,7 @@ async function createTask(imageKey, prompt) {
             task_params: { input_image: [imageKey] }
         })
     })
-    const payload = decrypt(json?.data)
+    const payload = await decrypt(json?.data)
     if (!payload || payload.code !== 0) throw new Error(`Create task gagal: ${payload?.msg || "unknown"}`)
     return payload.data.serial_no
 }
@@ -80,7 +101,7 @@ async function pollTask(serialNo) {
         await sleep(2000)
         const qs = `ekey=${ekey()}&soft_id=imgedit_web`
         const json = await fetchJSON(`https://imgedit.ai/api/v1/draw-task/${serialNo}?${qs}`)
-        const payload = decrypt(json?.data)
+        const payload = await decrypt(json?.data)
         const detail = payload?.data?.detail
         if (!detail) continue
         if (detail.status === 2) {
