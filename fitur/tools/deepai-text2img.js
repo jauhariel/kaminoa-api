@@ -16,8 +16,10 @@ function genKEY() {
 }
 
 async function text2img(prompt, style, gridSize) {
+    const deviceId = crypto.randomUUID()
     const form = new FormData()
     form.append("text", prompt)
+    form.append("generation_source", "img")
     if (style) form.append("style", style)
     if (gridSize) form.append("grid_size", gridSize)
 
@@ -29,7 +31,8 @@ async function text2img(prompt, style, gridSize) {
             referer: "https://deepai.org/",
             "user-agent": AGENT,
             "api-key": genKEY(),
-            "x-forwarded-for": randomIP()
+            "x-forwarded-for": randomIP(),
+            Cookie: `device_id=${deviceId}`
         },
         body: form
     })

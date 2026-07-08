@@ -20,6 +20,7 @@ async function superResolution(imageUrl) {
     if (!imgRes.ok) throw new Error(`Gagal download gambar: ${imgRes.status}`)
     const imgBuf = Buffer.from(await imgRes.arrayBuffer())
     const contentType = imgRes.headers.get("content-type") || "image/jpeg"
+    const deviceId = crypto.randomUUID()
 
     let last = "request failed"
     for (let i = 0; i < 6; i++) {
@@ -34,7 +35,8 @@ async function superResolution(imageUrl) {
                     referer: "https://deepai.org/",
                     "user-agent": AGENT,
                     "api-key": genKEY(),
-                    "x-forwarded-for": randomIP()
+                    "x-forwarded-for": randomIP(),
+                    Cookie: `device_id=${deviceId}`
                 },
                 body: form
             })

@@ -20,6 +20,7 @@ async function editImage(imageUrl, prompt) {
     if (!imgRes.ok) throw new Error(`Gagal download gambar: ${imgRes.status}`)
     const imgBuf = Buffer.from(await imgRes.arrayBuffer())
     const contentType = imgRes.headers.get("content-type") || "image/jpeg"
+    const deviceId = crypto.randomUUID()
 
     let last = "request failed"
     for (let i = 0; i < 6; i++) {
@@ -36,13 +37,14 @@ async function editImage(imageUrl, prompt) {
                     referer: "https://deepai.org/",
                     "user-agent": AGENT,
                     "api-key": genKEY(),
-                    "x-forwarded-for": randomIP()
+                    "x-forwarded-for": randomIP(),
+                    Cookie: `device_id=${deviceId}`
                 },
                 body: form
             })
             const json = await res.json().catch(() => null)
             if (json?.output_url) return json.output_url
-            last = json?.status || `http ${res.status}`
+            last = json?.status || json?.err || `http ${res.status}`
         } catch (e) { last = e.message }
     }
     throw new Error(last)
