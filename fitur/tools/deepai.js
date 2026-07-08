@@ -22,6 +22,10 @@ async function editImage(imageUrl, prompt) {
     const contentType = imgRes.headers.get("content-type") || "image/jpeg"
     const deviceId = crypto.randomUUID()
 
+    await fetch("https://deepai.org/machine-learning-model/image-editor", {
+        headers: { "user-agent": AGENT, Cookie: `device_id=${deviceId}` }
+    }).catch(() => {})
+
     let last = "request failed"
     for (let i = 0; i < 6; i++) {
         const form = new FormData()

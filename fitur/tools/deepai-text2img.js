@@ -17,6 +17,12 @@ function genKEY() {
 
 async function text2img(prompt, style, gridSize) {
     const deviceId = crypto.randomUUID()
+    const headers = {
+        "user-agent": AGENT,
+        Cookie: `device_id=${deviceId}`
+    }
+    await fetch("https://deepai.org/machine-learning-model/text2img", { headers }).catch(() => {})
+
     const form = new FormData()
     form.append("text", prompt)
     form.append("generation_source", "img")
