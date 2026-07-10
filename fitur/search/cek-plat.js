@@ -53,13 +53,13 @@ function parsePlate(plate) {
     plate = (plate || '').toString().trim().toUpperCase().replace(/\s+/g, ' ')
     const parts = plate.split(' ')
 
-    if (parts.length < 2) return { error: 'Format plat tidak valid' }
+    if (parts.length < 2) return { error: 'Format plat tidak valid', status: 400 }
 
     const prefix = parts[0]
-    if (!/^[A-Z]{1,2}$/.test(prefix)) return { error: 'Kode daerah tidak valid' }
+    if (!/^[A-Z]{1,2}$/.test(prefix)) return { error: 'Kode daerah tidak valid', status: 400 }
 
     const number = parts[1]
-    if (!/^\d+$/.test(number)) return { error: 'Nomor plat harus angka' }
+    if (!/^\d+$/.test(number)) return { error: 'Nomor plat harus angka', status: 400 }
 
     let suffix = ''
     if (parts.length > 2) {
@@ -68,7 +68,7 @@ function parsePlate(plate) {
     }
 
     const wilayah = WILAYAH[prefix]
-    if (!wilayah) return { error: `Kode daerah ${prefix} tidak dikenali` }
+    if (!wilayah) return { error: `Kode daerah ${prefix} tidak dikenali`, status: 404 }
 
     let vehicleType = 'Kendaraan Pribadi'
     if (['RI', 'CD', 'RF'].includes(prefix)) vehicleType = 'Kendaraan Dinas Pemerintah'
@@ -91,25 +91,21 @@ function parsePlate(plate) {
 
 export default {
     route: {
-        method: "post",
-        path: "/tools/plate/check",
+        method: "get",
+        path: "/search/cek-plat",
         auth: false,
-        tags: ["Tools"],
-        summary: "Cek plat nomor kendaraan Indonesia",
-        description: "Memparse plat nomor Indonesia dan mengembalikan provinsi, kabupaten, serta jenis kendaraan berdasarkan kode daerah.",
-        requestBody: {
-            required: true,
-            content: {
-                "application/json": {
-                    schema: {
-                        type: "object",
-                        properties: {
-                            plate: { type: "string", example: "B 1234 ABC" },
-                        },
-                    },
-                },
-            },
-        },
+        tags: ["Search"],
+        summary: "Cek informasi plat nomor kendaraan Indonesia",
+        description: "Memparse plat nomor Indonesia dan mengembalikan provinsi, kabupaten, serta jenis kendaraan berdasarkan kode daerah prefix plat.",
+        parameters: [
+            {
+                name: "plate",
+                in: "query",
+                required: true,
+                description: "Plat nomor kendaraan (contoh: B 1234 ABC)",
+                schema: { type: "string", example: "B 1234 ABC" }
+            }
+        ],
         responses: {
             "200": {
                 description: "Berhasil",
@@ -119,23 +115,25 @@ export default {
                             type: "object",
                             properties: {
                                 ok: { type: "boolean", example: true },
-                                data: { type: "object" },
-                            },
-                        },
-                    },
-                },
+                                result: { type: "object" }
+                            }
+                        }
+                    }
+                }
             },
-            "400": { description: "Parameter tidak valid" },
-        },
+            "400": { description: "Format plat tidak valid" },
+            "404": { description: "Kode daerah tidak dikenali" },
+            "500": { description: "Kesalahan server" }
+        }
     },
 
     handler: async (req, res) => {
-        const plate = (req.body?.plate || '').toString().trim()
-        if (!plate) return res.status(400).json({ ok: false, error: 'Parameter "plate" wajib diisi' })
+        const plate = req.query.plate?.toString().trim()
+        if (!plate) return res.status(400).json({ ok: false, error: 'Isi parameter "plate"' })
 
-        const { result, error } = parsePlate(plate)
-        if (error) return res.status(400).json({ ok: false, error, plate })
+        const { result, error, status = 500 } = parsePlate(plate)
+        if (error) return res.status(status).json({ ok: false, error, plate })
 
-        res.json({ ok: true, data: result })
-    },
+        res.json({ ok: true, result })
+    }
 }
