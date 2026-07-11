@@ -1,7 +1,7 @@
 {
   "name": "kaminoa-api",
   "version": "1.0.0",
-  "description": "",
+  "description": "REST API collection dengan dokumentasi interaktif. Tambah endpoint baru cukup dengan membuat file baru di folder `fitur/` — server langsung mendeteksinya otomatis.",
   "license": "ISC",
   "author": "",
   "type": "module",
@@ -12,12 +12,24 @@
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.0",
-    "axios": "^1.17.0",
+    "axios": "^1.18.1",
     "cheerio": "^1.2.0",
     "dotenv": "^17.4.2",
     "express": "^4.19.2",
     "node-webpmux": "^3.2.1",
     "unfurl.js": "^6.4.0",
     "ws": "^8.21.0"
-  }
+  },
+  "directories": {
+    "lib": "lib"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jauhariel/kaminoa-api.git"
+  },
+  "keywords": [],
+  "bugs": {
+    "url": "https://github.com/jauhariel/kaminoa-api/issues"
+  },
+  "homepage": "https://github.com/jauhariel/kaminoa-api#readme"
 }
