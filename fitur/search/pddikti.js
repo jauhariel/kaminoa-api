@@ -25,13 +25,25 @@ async function getIP() {
     }
 }
 
-async function searchMahasiswa(keyword) {
+async function searchPddikti(keyword, mode = "mhs") {
     const ip = await getIP()
-    const { data } = await axios.get(`${BASE}/pencarian/mhs/${encodeURIComponent(keyword)}`, {
+    
+    let path = `/pencarian/mhs/${encodeURIComponent(keyword)}`
+    if (mode === "dosen") path = `/pencarian/dosen/${encodeURIComponent(keyword)}`
+    else if (mode === "pt") path = `/pencarian/pt/${encodeURIComponent(keyword)}`
+    else if (mode === "prodi") path = `/pencarian/prodi/${encodeURIComponent(keyword)}`
+    else if (mode === "all") path = `/pencarian/all/${encodeURIComponent(keyword)}`
+
+    const { data } = await axios.get(`${BASE}${path}`, {
         headers: { ...HEADERS, "X-User-IP": ip },
         timeout: 15000
     })
-    return Array.isArray(data) ? data : (data.mahasiswa ?? [])
+    
+    if (mode === "all") {
+        return data.data ?? data ?? {}
+    }
+    
+    return Array.isArray(data) ? data : (data.data ?? data.mahasiswa ?? [])
 }
 
 async function getDetailMahasiswa(id) {
@@ -40,7 +52,7 @@ async function getDetailMahasiswa(id) {
         headers: { ...HEADERS, "X-User-IP": ip },
         timeout: 15000
     })
-    return data
+    return data.data ?? data
 }
 
 export default {
@@ -56,8 +68,15 @@ export default {
                 name: "query",
                 in: "query",
                 required: false,
-                description: "Nama atau NIM mahasiswa yang dicari",
+                description: "Kata kunci yang dicari (nama/NIM/NIDN/nama PT, dll)",
                 schema: { type: "string", example: "Jauhari" }
+            },
+            {
+                name: "mode",
+                in: "query",
+                required: false,
+                description: "Mode pencarian: all, mhs, dosen, pt, prodi (default: mhs)",
+                schema: { type: "string", example: "mhs" }
             },
             {
                 name: "id",
@@ -77,6 +96,7 @@ export default {
                             properties: {
                                 ok: { type: "boolean", example: true },
                                 type: { type: "string", enum: ["search", "detail"] },
+                                mode: { type: "string", enum: ["all", "mhs", "dosen", "pt", "prodi"] },
                                 query: { type: "string" },
                                 total: { type: "integer" },
                                 results: { type: "array", items: { type: "object" } },
@@ -103,6 +123,7 @@ export default {
 
     handler: async (req, res) => {
         const { query, id } = req.query
+        const mode = (req.query.mode ?? "mhs").toLowerCase()
 
         if (!query?.trim() && !id?.trim()) {
             return res.status(400).json({ ok: false, error: "Isi parameter 'query' untuk mencari, atau 'id' untuk melihat detail" })
@@ -117,11 +138,39 @@ export default {
                 return res.json({ ok: true, type: "detail", result })
             }
 
-            const results = await searchMahasiswa(query.trim())
-            if (!results.length) {
-                return res.status(404).json({ ok: false, error: "Mahasiswa tidak ditemukan" })
+            const validModes = ["all", "mhs", "mahasiswa", "dosen", "pt", "prodi"]
+            if (!validModes.includes(mode)) {
+                return res.status(400).json({ ok: false, error: "Mode tidak valid. Gunakan: all, mhs, dosen, pt, prodi" })
             }
-            return res.json({ ok: true, type: "search", query: query.trim(), total: results.length, results })
+
+            const activeMode = mode === "mahasiswa" ? "mhs" : mode
+            const results = await searchPddikti(query.trim(), activeMode)
+            
+            if (activeMode === "all") {
+                const mhs = Array.isArray(results.mahasiswa) ? results.mahasiswa : []
+                const dosen = Array.isArray(results.dosen) ? results.dosen : []
+                const pt = Array.isArray(results.pt) ? results.pt : []
+                const prodi = Array.isArray(results.prodi) ? results.prodi : []
+                const total = mhs.length + dosen.length + pt.length + prodi.length
+                
+                if (total === 0) {
+                    return res.status(404).json({ ok: false, error: "Data tidak ditemukan" })
+                }
+                
+                return res.json({ 
+                    ok: true, 
+                    type: "search",
+                    mode: "all", 
+                    query: query.trim(), 
+                    total, 
+                    results: { mahasiswa: mhs, dosen, pt, prodi } 
+                })
+            }
+
+            if (!results.length) {
+                return res.status(404).json({ ok: false, error: "Data tidak ditemukan" })
+            }
+            return res.json({ ok: true, type: "search", mode: activeMode, query: query.trim(), total: results.length, results })
         } catch (e) {
             res.status(e.response?.status || 500).json({ ok: false, error: e.message })
         }
