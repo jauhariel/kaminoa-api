@@ -1,10 +1,9 @@
 import axios from "axios"
 import * as cheerio from "cheerio"
 
-// Threads me-render og-meta + JSON (video_versions) hanya untuk UA crawler.
-// Hanya Googlebot/bingbot yg mengembalikan video_versions (UA biasa/Yandex/Applebot tidak).
-// Dirotasi + retry untuk meredam rate-limit per-IP (HTTP 429).
+// facebookexternalhit mengembalikan JSON paling lengkap, Googlebot/bingbot sebagai fallback.
 const UAS = [
+    "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_voiced.html)",
     "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
     "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
     "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
@@ -12,7 +11,6 @@ const UAS = [
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-// Ambil HTML dengan rotasi UA crawler; ulangi saat 429/5xx (rate-limit Meta per-IP).
 async function fetchHtml(url) {
     let last
     for (let i = 0; i < UAS.length; i++) {
@@ -31,34 +29,106 @@ async function fetchHtml(url) {
             if (i < UAS.length - 1) await sleep(800 * (i + 1))
             continue
         }
-        break // 4xx lain (mis. 404) → tidak perlu retry
+        break
     }
     throw new Error(last === 429
         ? "Rate limit Threads (429) — coba lagi beberapa saat"
         : `Threads mengembalikan status ${last}`)
 }
 
-// Telusuri JSON kompleks Threads secara rekursif untuk url video pertama.
-function findVideoUrl(data) {
-    if (Array.isArray(data)) {
-        for (const v of data) {
-            const r = findVideoUrl(v)
-            if (r) return r
+function getThreadId(url) {
+    let cleanUrl = url.split("?")[0].split("&")[0]
+    if (cleanUrl.includes("/t/")) cleanUrl = cleanUrl.split("/t/")[1]
+    else if (cleanUrl.includes("/post/")) cleanUrl = cleanUrl.split("/post/")[1]
+    if (cleanUrl.endsWith("/")) cleanUrl = cleanUrl.slice(0, -1)
+    return cleanUrl.split("/").pop()
+}
+
+function findPostObject(obj, targetCode) {
+    if (!obj || typeof obj !== "object") return null
+    if (Array.isArray(obj)) {
+        for (const item of obj) {
+            const found = findPostObject(item, targetCode)
+            if (found) return found
         }
-        return null
-    }
-    if (data && typeof data === "object") {
-        const first = data.video_versions?.[0]?.url
-        if (typeof first === "string" && first) return first
-        for (const v of Object.values(data)) {
-            const r = findVideoUrl(v)
-            if (r) return r
+    } else {
+        if (obj.code === targetCode) return obj
+        for (const key in obj) {
+            const found = findPostObject(obj[key], targetCode)
+            if (found) return found
         }
     }
     return null
 }
 
-// og:title Threads berformat "Nama (@username) on Threads".
+function getDurationFromUrl(videoUrl) {
+    try {
+        const urlObj = new URL(videoUrl)
+        const efg = urlObj.searchParams.get("efg")
+        if (efg) {
+            const decoded = Buffer.from(efg, "base64").toString("utf-8")
+            const data = JSON.parse(decoded)
+            if (data?.duration_s) return Math.round(data.duration_s) + "s"
+        }
+    } catch {}
+    return null
+}
+
+function parseMedia(obj, list = [], seenUrls = new Set()) {
+    if (!obj || typeof obj !== "object") return list
+    if (Array.isArray(obj)) {
+        for (const item of obj) parseMedia(item, list, seenUrls)
+    } else {
+        if (obj.video_versions && Array.isArray(obj.video_versions)) {
+            const bestVideo = obj.video_versions[0]
+            if (bestVideo?.url) {
+                const url = bestVideo.url.replace(/\\/g, "").replace(/&amp;/g, "&")
+                if (!seenUrls.has(url)) {
+                    seenUrls.add(url)
+                    let duration = obj.video_duration ? Math.round(obj.video_duration) + "s"
+                        : obj.duration ? Math.round(obj.duration) + "s"
+                        : null
+                    if (!duration) duration = getDurationFromUrl(url)
+                    list.push({
+                        type: "video",
+                        width: obj.original_width || null,
+                        height: obj.original_height || null,
+                        resolution: obj.original_width && obj.original_height
+                            ? `${obj.original_width}x${obj.original_height}` : "Best Quality",
+                        duration,
+                        url,
+                    })
+                }
+            }
+        } else if (obj.image_versions2?.candidates && Array.isArray(obj.image_versions2.candidates)) {
+            if (!obj.video_versions) {
+                const bestImage = obj.image_versions2.candidates[0]
+                if (bestImage?.url) {
+                    const url = bestImage.url.replace(/\\/g, "").replace(/&amp;/g, "&")
+                    if (!seenUrls.has(url)) {
+                        seenUrls.add(url)
+                        list.push({
+                            type: "image",
+                            width: obj.original_width || bestImage.width || null,
+                            height: obj.original_height || bestImage.height || null,
+                            resolution: obj.original_width && obj.original_height
+                                ? `${obj.original_width}x${obj.original_height}`
+                                : bestImage.width && bestImage.height
+                                    ? `${bestImage.width}x${bestImage.height}` : "Best Quality",
+                            url,
+                        })
+                    }
+                }
+            }
+        }
+        for (const key in obj) {
+            if (key !== "video_versions" && key !== "image_versions2" && key !== "image_versions")
+                parseMedia(obj[key], list, seenUrls)
+        }
+    }
+    return list
+}
+
 function parseAuthor(ogTitle, url) {
     const fromUrl = (url.match(/threads\.(?:net|com)\/@([A-Za-z0-9_.]+)/) || [])[1] || null
     const m = (ogTitle || "").match(/^(.*?)\s*\(@([A-Za-z0-9_.]+)\)/)
@@ -71,38 +141,47 @@ function parseAuthor(ogTitle, url) {
 }
 
 async function threads(postUrl) {
-    const html = await fetchHtml(postUrl)
+    const targetUrl = postUrl.replace("threads.com", "threads.net")
+    const shortcode = getThreadId(targetUrl)
+    const html = await fetchHtml(targetUrl)
     const $ = cheerio.load(html)
     const og = (p) => $(`meta[property="og:${p}"]`).attr("content") || null
 
-    // Video: utamakan og:video, fallback ke video_versions di blob JSON.
-    let video = og("video") || og("video:secure_url")
-    if (!video) {
-        $('script[type="application/json"]').each((_, s) => {
-            if (video) return
-            const c = $(s).text()
-            if (c && c.includes("video_versions")) {
-                try {
-                    const r = findVideoUrl(JSON.parse(c))
-                    if (r) video = r
-                } catch { /* skip blob yang bukan JSON valid */ }
-            }
+    let postObj = null
+    $('script[type="application/json"]').each((_, el) => {
+        if (postObj) return
+        try {
+            const jsonText = $(el).text().trim()
+            if (jsonText) postObj = findPostObject(JSON.parse(jsonText), shortcode)
+        } catch {}
+    })
+
+    const mediaList = []
+    const seenUrls = new Set()
+    if (postObj) {
+        parseMedia(postObj, mediaList, seenUrls)
+    } else {
+        $('script[type="application/json"]').each((_, el) => {
+            try {
+                const jsonText = $(el).text().trim()
+                if (jsonText) parseMedia(JSON.parse(jsonText), mediaList, seenUrls)
+            } catch {}
         })
     }
 
-    if (!og("description") && !og("image") && !video) {
+    if (mediaList.length === 0 && !og("description") && !og("image")) {
         throw new Error("Post tidak ditemukan, privat, atau dihapus")
     }
 
-    const shortcode = (postUrl.match(/\/post\/([A-Za-z0-9_-]+)/) || [])[1] || null
+    const types = [...new Set(mediaList.map((m) => m.type))]
     return {
         shortcode,
-        type: video ? "video" : "image",
+        type: types.length === 1 ? types[0] : types.length > 1 ? "carousel" : "unknown",
         description: og("description"),
-        author: parseAuthor(og("title"), postUrl),
+        author: parseAuthor(og("title"), targetUrl),
         thumbnail: og("image"),
-        video,
-        url: og("url") || postUrl,
+        medias: mediaList,
+        url: og("url") || targetUrl,
     }
 }
 
@@ -112,8 +191,8 @@ export default {
         path: "/downloader/threads",
         auth: false,
         tags: ["Downloader"],
-        summary: "Download video & info post Threads (scrape langsung)",
-        description: "Mengambil caption, author, thumbnail, dan url video post Threads langsung dari halaman (tanpa pihak ketiga/login) via UA crawler. Mendukung link threads.com & threads.net. Untuk post foto, `video` bernilai null.",
+        summary: "Download media post Threads (scrape langsung)",
+        description: "Mengambil semua media (gambar/video), caption, dan author dari post Threads langsung via UA crawler. Mendukung carousel, thumbnail, resolusi & durasi video. UA utama facebookexternalhit dengan fallback Googlebot/bingbot.",
         parameters: [
             {
                 name: "url",
@@ -136,7 +215,7 @@ export default {
                                     type: "object",
                                     properties: {
                                         shortcode: { type: "string", nullable: true },
-                                        type: { type: "string", enum: ["video", "image"] },
+                                        type: { type: "string", enum: ["image", "video", "carousel", "unknown"] },
                                         description: { type: "string", nullable: true },
                                         author: {
                                             type: "object",
@@ -147,7 +226,20 @@ export default {
                                             },
                                         },
                                         thumbnail: { type: "string", nullable: true },
-                                        video: { type: "string", nullable: true, description: "URL mp4 langsung (null bila post foto)" },
+                                        medias: {
+                                            type: "array",
+                                            items: {
+                                                type: "object",
+                                                properties: {
+                                                    type: { type: "string", enum: ["image", "video"] },
+                                                    width: { type: "number", nullable: true },
+                                                    height: { type: "number", nullable: true },
+                                                    resolution: { type: "string" },
+                                                    duration: { type: "string", nullable: true },
+                                                    url: { type: "string" },
+                                                },
+                                            },
+                                        },
                                         url: { type: "string", nullable: true },
                                     },
                                 },
