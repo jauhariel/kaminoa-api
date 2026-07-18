@@ -1,8 +1,7 @@
 import axios from "axios"
 
-// Endpoint IG API v1. Primary i.instagram.com sering balikin 404 dari IP server,
-// jadi www.instagram.com dipakai sebagai jalur utama (terverifikasi jalan dgn cookie).
-const API = "https://www.instagram.com/api/v1"
+const API_PRIMARY = "https://i.instagram.com/api/v1"
+const API_FALLBACK = "https://www.instagram.com/api/v1"
 const IG_APP_ID = "936619743392459"
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 const EMBED_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
@@ -34,8 +33,8 @@ function shortcodeToMediaId(shortcode) {
     return id.toString()
 }
 
-function buildHeaders(cookieStr) {
-    return {
+function buildHeaders(cookieStr, { origin } = {}) {
+    const headers = {
         "User-Agent": UA,
         Accept: "application/json, text/plain, */*",
         "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -44,11 +43,17 @@ function buildHeaders(cookieStr) {
         "X-IG-App-ID": IG_APP_ID,
         "X-CSRFToken": extractCookie(cookieStr, "csrftoken"),
         "X-Requested-With": "XMLHttpRequest",
-        "Sec-Fetch-Site": "same-origin",
         "Sec-Fetch-Mode": "cors",
         "Sec-Fetch-Dest": "empty",
         Connection: "keep-alive",
     }
+    if (origin) {
+        headers.Origin = origin
+        headers["Sec-Fetch-Site"] = "same-site"
+    } else {
+        headers["Sec-Fetch-Site"] = "same-origin"
+    }
+    return headers
 }
 
 // Pilih thumbnail resolusi tertinggi dari image_versions2.candidates.
@@ -189,23 +194,24 @@ async function instagram2(postUrl) {
     const mediaId = shortcodeToMediaId(shortcode)
     const cookie = getCookie()
 
-    // Coba jalur login dulu (dapat video_url HD) kalau cookie tersedia.
-    // Pakai fetch native, bukan axios: axios kena redirect-loop 302 (redirect-to-self)
-    // di /media/info/ walau header identik, sedangkan fetch dapat 200 langsung.
+    // Coba jalur login dulu (dapat video_url + audio) kalau cookie tersedia.
+    // Prioritas: i.instagram.com (mobile API, lebih lengkap audio), fallback www.instagram.com.
     if (extractCookie(cookie, "sessionid")) {
-        try {
-            const resp = await fetch(`${API}/media/${mediaId}/info/`, {
-                headers: buildHeaders(cookie),
-                signal: AbortSignal.timeout(20000),
-            })
-            // Cookie expired → IG redirect ke login / balikin non-JSON. Anggap gagal → embed.
-            if (resp.ok && (resp.headers.get("content-type") || "").includes("json")) {
-                const data = await resp.json()
-                const item = data?.items?.[0]
-                if (item?.pk) return formatItem(item, shortcode, mediaId)
+        for (const api of [API_PRIMARY, API_FALLBACK]) {
+            try {
+                const useMobile = api === API_PRIMARY
+                const resp = await fetch(`${api}/media/${mediaId}/info/`, {
+                    headers: buildHeaders(cookie, { origin: "https://www.instagram.com" }),
+                    signal: AbortSignal.timeout(20000),
+                })
+                if (resp.ok && (resp.headers.get("content-type") || "").includes("json")) {
+                    const data = await resp.json()
+                    const item = data?.items?.[0]
+                    if (item?.pk) return formatItem(item, shortcode, mediaId)
+                }
+            } catch (e) {
+                console.error(`[instagram2] ${api} gagal: ${e.message}`)
             }
-        } catch (e) {
-            console.error(`[instagram2] jalur login gagal, fallback embed: ${e.message}`)
         }
     }
 
