@@ -287,29 +287,34 @@ app.post("/pay/create", async (req, res) => {
     if (!payEnabled()) return res.status(503).json({ ok: false, error: "Pembayaran belum dikonfigurasi admin" })
     const u = req.user
     const cfg = payConfig()
-    const existing = paymentStore.pendingForUser(u.id, cfg.expiryMin * 60 * 1000)
-    if (existing && existing.amount === cfg.price) {
-        return res.json({ ok: true, reused: true, refNo: existing.refNo, qrUrl: existing.qrUrl, paymentLink: existing.paymentLink, amount: existing.amount })
-    }
     try {
+        const existing = paymentStore.pendingForUser(u.id, cfg.expiryMin * 60 * 1000)
+        if (existing && existing.amount === cfg.price) {
+            return res.json({ ok: true, reused: true, refNo: existing.refNo, qrUrl: existing.qrUrl, paymentLink: existing.paymentLink, amount: existing.amount })
+        }
         const base = `${req.protocol}://${req.get("host")}`
         const q = await createQris({
             amount: cfg.price,
             productName: `Kaminoa API — Pro ${cfg.durationDays} hari`,
             customerName: u.name || "Pelanggan",
-            expiry: cfg.expiryMin,
+            expiryMinutes: cfg.expiryMin,
             redirectUrl: `${base}/dashboard`
         })
+        if (!q.ok) {
+            console.error("[pay] MustikaPay menolak:", q.error)
+            return res.status(502).json({ ok: false, error: "Gagal membuat tagihan: " + (q.error || "tidak diketahui") })
+        }
         paymentStore.add({
-            refNo: q.ref_no,
+            refNo: q.refNo,
             userId: u.id,
             email: u.email,
-            amount: Number(q.amount) || cfg.price,
-            qrUrl: q.qr_url,
-            paymentLink: q.payment_link
+            amount: cfg.price,
+            qrUrl: q.qrUrl,
+            paymentLink: q.paymentLink
         })
-        res.json({ ok: true, refNo: q.ref_no, qrUrl: q.qr_url, paymentLink: q.payment_link, amount: Number(q.amount) || cfg.price })
+        res.json({ ok: true, refNo: q.refNo, qrUrl: q.qrUrl, paymentLink: q.paymentLink, amount: cfg.price })
     } catch (e) {
+        console.error("[pay] Gagal membuat tagihan:", e)
         res.status(502).json({ ok: false, error: "Gagal membuat tagihan: " + e.message })
     }
 })
