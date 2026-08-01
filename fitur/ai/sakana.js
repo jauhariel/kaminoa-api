@@ -280,6 +280,10 @@ async function askSakana(prompt, { thinking = false, search = false, sessionOver
     try {
         return await runOnce(prompt, { thinking, search, session, files, conversationId, keep })
     } catch (e) {
+        // Session eksplisit (env/param) kedaluwarsa → beri pesan yang jelas.
+        if (e.status === 401 && explicit) {
+            throw new Error("Sesi Sakana tidak valid/kedaluwarsa — perbarui SAKANA_SESSION di .env (atau param ?session=) dengan cookie sakana-chat terbaru dari browser")
+        }
         // Session auto kedaluwarsa → buang cache, mint ulang, coba lagi (hanya utk percakapan baru).
         if (e.status === 401 && !explicit && !conversationId) {
             cachedSession = null

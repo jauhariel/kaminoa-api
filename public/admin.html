@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin — Kaminoa API</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:      #07070b;
+  --bg3:     #14141d;
+  --bg4:     #1b1b27;
+  --border:  #20202e;
+  --border2: #2a2a3d;
+  --primary: #8b5cf6;
+  --primary2:#ec4899;
+  --grad:    linear-gradient(120deg,#8b5cf6,#ec4899);
+  --text:    #e4e7f5;
+  --muted:   #6b7194;
+  --green:   #22c55e;
+  --amber:   #f59e0b;
+  --red:     #ef4444;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100dvh;position:relative}
+body::before{content:"";position:fixed;inset:-30%;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(38% 42% at 18% 12%, #8b5cf640 0%, transparent 60%),
+    radial-gradient(34% 40% at 88% 8%,  #ec489933 0%, transparent 60%),
+    radial-gradient(40% 46% at 78% 92%, #6366f133 0%, transparent 62%);
+  filter:blur(36px)}
+body::after{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+  background-image:linear-gradient(#ffffff05 1px,transparent 1px),linear-gradient(90deg,#ffffff05 1px,transparent 1px);
+  background-size:44px 44px;mask-image:radial-gradient(circle at 50% 30%,#000 0%,transparent 78%)}
+header{position:relative;z-index:1;display:flex;align-items:center;gap:10px;padding:0 18px;height:54px;background:rgba(10,10,16,.72);backdrop-filter:blur(16px);border-bottom:1px solid var(--border)}
+.logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:15px;letter-spacing:-.3px;background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;text-decoration:none}
+.logo-dot{width:9px;height:9px;background:var(--grad);border-radius:50%}
+.admin-tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;background:linear-gradient(120deg,#8b5cf633,#ec489933);border:1px solid #8b5cf655;color:#c4b5fd;border-radius:100px;padding:3px 10px}
+.hdr-right{margin-left:auto;display:flex;gap:8px}
+.hbtn{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--muted);text-decoration:none;border:1px solid var(--border);background:var(--bg3);border-radius:9px;padding:7px 12px;transition:.14s}
+.hbtn:hover{color:var(--text);border-color:var(--border2)}
+main{position:relative;z-index:1;max-width:860px;margin:0 auto;padding:28px 18px 60px;display:flex;flex-direction:column;gap:16px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.stat{background:rgba(12,12,18,.8);border:1px solid var(--border);border-radius:14px;padding:16px;text-align:center}
+.stat b{display:block;font-size:24px;font-weight:800;font-family:'JetBrains Mono',monospace;background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.stat span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+.card{background:rgba(12,12,18,.8);backdrop-filter:blur(16px);border:1px solid var(--border);border-radius:16px;padding:22px}
+.card h2{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:6px}
+.card .sub{font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.5}
+.card .sub code{background:var(--bg4);border:1px solid var(--border2);border-radius:5px;padding:1px 6px;font-size:11px;font-family:'JetBrains Mono',monospace}
+.mkrow{display:flex;gap:8px;margin-bottom:14px}
+.mkrow input{flex:1;font-size:13px;background:var(--bg3);border:1px solid var(--border2);border-radius:10px;color:var(--text);padding:11px 13px;outline:none;min-width:0;font-family:inherit}
+.mkrow input:focus{border-color:var(--primary)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:12.5px;font-weight:700;background:var(--grad);color:#fff;border:none;border-radius:10px;padding:0 16px;cursor:pointer;transition:.14s;font-family:inherit;white-space:nowrap}
+.btn:hover{transform:translateY(-1px)}
+.btn.sm{padding:6px 12px;font-size:11.5px;border-radius:8px}
+.btn.ghost{background:var(--bg4);border:1px solid var(--border2);color:var(--text)}
+.btn.ghost:hover{border-color:var(--primary)}
+.btn.danger{background:var(--bg4);border:1px solid var(--border2);color:var(--muted)}
+.btn.danger:hover{border-color:var(--red);color:#f87171}
+.list{display:flex;flex-direction:column;gap:8px}
+.item{display:flex;align-items:center;gap:12px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:12px 14px;flex-wrap:wrap}
+.item img{width:34px;height:34px;border-radius:50%;object-fit:cover;background:var(--bg4);flex-shrink:0}
+.item .grow{flex:1;min-width:160px}
+.item .t1{font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.item .t2{font-size:11.5px;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:2px;word-break:break-all}
+.badge{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;border-radius:100px;padding:2px 9px}
+.badge-free{background:#3b82f61f;border:1px solid #3b82f644;color:#60a5fa}
+.badge-pro{background:linear-gradient(120deg,#8b5cf633,#ec489933);border:1px solid #8b5cf655;color:#c4b5fd}
+.badge-unl{background:#22c55e1a;border:1px solid #22c55e44;color:#4ade80}
+.item .usage{font-size:11.5px;color:var(--muted);font-family:'JetBrains Mono',monospace;white-space:nowrap}
+.acts{display:flex;gap:6px;flex-shrink:0}
+.empty{font-size:12.5px;color:var(--muted);text-align:center;padding:18px;border:1px dashed var(--border2);border-radius:12px}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--bg4);border:1px solid var(--border2);color:var(--text);font-size:13px;font-weight:600;border-radius:10px;padding:10px 18px;opacity:0;pointer-events:none;transition:.25s;z-index:50}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.spin{width:18px;height:18px;border:2px solid var(--border2);border-top-color:var(--primary);border-radius:50%;animation:sp .7s linear infinite;margin:40px auto}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<header>
+  <a class="logo" href="/"><div class="logo-dot"></div>Kaminoa API</a>
+  <span class="admin-tag">Admin</span>
+  <div class="hdr-right">
+    <a class="hbtn" href="/dashboard">Dashboard</a>
+    <a class="hbtn" href="/docs">Docs</a>
+    <a class="hbtn" href="/auth/logout">Logout</a>
+  </div>
+</header>
+
+<main id="main"><div class="spin"></div></main>
+<div class="toast" id="toast"></div>
+
+<script>
+const main = document.getElementById('main')
+const toastEl = document.getElementById('toast')
+
+function toast(msg) {
+  toastEl.textContent = msg
+  toastEl.classList.add('show')
+  setTimeout(() => toastEl.classList.remove('show'), 2200)
+}
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+}
+const fmt = n => Number(n).toLocaleString('id-ID')
+function fmtDate(iso) {
+  if (!iso) return '-'
+  return new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+function mask(k) {
+  return k.length > 16 ? k.slice(0, 12) + '…' + k.slice(-4) : k
+}
+async function copy(text, msg) {
+  try { await navigator.clipboard.writeText(text); toast(msg || 'Tersalin') }
+  catch { toast('Gagal menyalin') }
+}
+
+async function load() {
+  const meR = await fetch('/auth/me')
+  if (!meR.ok) return location.href = '/login?next=' + encodeURIComponent('/admin')
+  const meD = await meR.json()
+  if (!meD.user?.isAdmin) {
+    main.innerHTML = '<div class="empty">Akun kamu bukan admin.</div>'
+    return
+  }
+  const [ov, us, ks] = await Promise.all([
+    fetch('/admin/overview').then(r => r.json()),
+    fetch('/admin/users').then(r => r.json()),
+    fetch('/admin/keys').then(r => r.json())
+  ])
+  render(ov, us.users || [], ks.keys || [])
+}
+
+function render(ov, users, keys) {
+  main.innerHTML = `
+    <div class="stats">
+      <div class="stat"><b>${fmt(ov.totalUsers || 0)}</b><span>Total User</span></div>
+      <div class="stat"><b>${fmt(ov.proUsers || 0)}</b><span>User Pro</span></div>
+      <div class="stat"><b>${fmt(ov.requestsToday || 0)}</b><span>Request Hari Ini</span></div>
+      <div class="stat"><b>${fmt(ov.specialKeys || 0)}</b><span>Admin Keys</span></div>
+    </div>
+
+    <div class="card">
+      <h2>Admin Keys</h2>
+      <p class="sub">Key khusus <b>tanpa limit</b> — cocok untuk script kamu sendiri atau partner. Pakai via header <code>x-api-key</code> seperti biasa.</p>
+      <div class="mkrow">
+        <input id="new-label" placeholder="Label key, mis: script bot WA" maxlength="60">
+        <button class="btn" onclick="createKey()">+ Buat Key</button>
+      </div>
+      <div class="list" id="keys-list">
+        ${keys.length === 0 ? '<div class="empty">Belum ada admin key.</div>' : keys.map(k => `
+          <div class="item">
+            <div class="grow">
+              <div class="t1">${esc(k.label)} <span class="badge badge-unl">unlimited</span></div>
+              <div class="t2">${esc(mask(k.key))} · dibuat ${fmtDate(k.createdAt)}</div>
+            </div>
+            <div class="acts">
+              <button class="btn ghost sm" onclick='copy(this.dataset.k, "Admin key tersalin")' data-k="${esc(k.key)}">Salin</button>
+              <button class="btn danger sm" onclick="revokeKey('${esc(k.key)}')">Cabut</button>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Users</h2>
+      <p class="sub">Ubah plan manual di sini. Pro yang di-set admin <b>tidak kedaluwarsa</b> (beda dengan Pro hasil pembayaran yang 30 hari).</p>
+      <div class="list">
+        ${users.length === 0 ? '<div class="empty">Belum ada user yang login.</div>' : users.map(u => `
+          <div class="item">
+            ${u.avatar ? `<img src="${esc(u.avatar)}" referrerpolicy="no-referrer">` : ''}
+            <div class="grow">
+              <div class="t1">${esc(u.name || 'user')} <span class="badge badge-${esc(u.plan)}">${esc(u.plan)}</span>
+                ${u.plan !== 'free' && u.planExpiresAt ? `<span style="font-size:10.5px;color:var(--muted)">s/d ${fmtDate(u.planExpiresAt)}</span>` : ''}
+              </div>
+              <div class="t2">${esc(u.email || '-')} · ${esc(mask(u.apiKey))}</div>
+            </div>
+            <span class="usage">${fmt(u.usage.used)} / ${fmt(u.usage.limit)} hari ini</span>
+            <div class="acts">
+              <button class="btn ghost sm" onclick='copy(this.dataset.k, "API key user tersalin")' data-k="${esc(u.apiKey)}">Key</button>
+              ${u.plan === 'free'
+                ? `<button class="btn sm" onclick="setPlan('${esc(u.email)}', 'pro')">Jadikan Pro</button>`
+                : `<button class="btn danger sm" onclick="setPlan('${esc(u.email)}', 'free')">Turunkan</button>`}
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>`
+}
+
+async function createKey() {
+  const input = document.getElementById('new-label')
+  const label = input.value.trim()
+  const r = await fetch('/admin/keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label })
+  })
+  const d = await r.json()
+  if (!d.ok) return toast(d.error || 'Gagal membuat key')
+  toast('Admin key dibuat')
+  load().then(() => copy(d.key, 'Key baru tersalin — simpan baik-baik'))
+}
+
+async function revokeKey(key) {
+  if (!confirm('Cabut key ini? Semua yang pakai key ini langsung tidak bisa akses.')) return
+  const r = await fetch('/admin/keys/' + encodeURIComponent(key), { method: 'DELETE' })
+  const d = await r.json()
+  if (!d.ok) return toast(d.error || 'Gagal mencabut key')
+  toast('Key dicabut')
+  load()
+}
+
+async function setPlan(email, plan) {
+  const r = await fetch('/admin/plan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, plan })
+  })
+  const d = await r.json()
+  if (!d.ok) return toast(d.error || 'Gagal mengubah plan')
+  toast(`${email} → ${plan}`)
+  load()
+}
+
+async function setBan(email, banned) {
+  if (banned && !confirm(`Ban ${email}? API key-nya langsung tidak bisa dipakai.`)) return
+  const r = await fetch('/admin/ban', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, banned })
+  })
+  const d = await r.json()
+  if (!d.ok) return toast(d.error || 'Gagal mengubah status ban')
+  toast(`${email} ${banned ? 'di-ban' : 'di-unban'}`)
+  load()
+}
+
+load()
+</script>
+
+</body>
+</html>

@@ -1,6 +1,13 @@
 .env
 node_modules/
 package-lock.json
+.sessions.json
+
+# Database SQLite (termasuk file WAL) & sisa format JSON lama
+data.sqlite*
+.users.json
+.payments.json
+*.json.bak
 
 # Data hadits cache (di-fetch dari GitHub & di-cache lokal)
 assets/islamic/hadits/*.json

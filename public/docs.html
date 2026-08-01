@@ -59,7 +59,14 @@ header{display:flex;align-items:center;gap:10px;padding:0 18px;height:54px;backg
 .apikey-input::placeholder{color:var(--dim)}
 .apikey-toggle{background:none;border:none;color:var(--muted);cursor:pointer;padding:2px;line-height:0;flex-shrink:0;transition:color .15s}
 .apikey-toggle:hover{color:var(--text)}
-.hbg{display:none;margin-left:auto;background:none;border:1px solid var(--border2);border-radius:8px;color:var(--text);cursor:pointer;padding:6px 8px;line-height:0}
+.hbg{display:none;background:none;border:1px solid var(--border2);border-radius:8px;color:var(--text);cursor:pointer;padding:6px 8px;line-height:0}
+.hdr-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.user-chip{display:flex;align-items:center;gap:8px;background:var(--bg3);border:1px solid var(--border);border-radius:100px;padding:4px 6px 4px 4px}
+.user-chip img{width:24px;height:24px;border-radius:50%;object-fit:cover;background:var(--bg4)}
+.user-chip .uname{font-size:12px;font-weight:600;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.user-chip .uprovider{font-size:9px;color:var(--muted);text-transform:capitalize;display:block;margin-top:-1px}
+.logout-btn{background:none;border:none;color:var(--muted);cursor:pointer;padding:4px;line-height:0;border-radius:50%;transition:color .15s,background .15s}
+.logout-btn:hover{color:#f87171;background:#ef44441a}
 
 /* ── Layout ── */
 .layout{display:flex;flex:1;overflow:hidden}
@@ -200,11 +207,30 @@ select.pinput option{background:var(--bg3)}
     Kaminoa API
   </div>
   <span class="ver" id="ver">v1.0.0</span>
-  <button class="hbg" id="hbg" onclick="toggleSidebar()">
-    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-      <path d="M3 12h18M3 6h18M3 18h18"/>
-    </svg>
-  </button>
+  <div class="hdr-right">
+    <div class="user-chip" id="user-chip" style="display:none">
+      <img id="user-avatar" alt="" referrerpolicy="no-referrer">
+      <div>
+        <span class="uname" id="user-name"></span>
+        <span class="uprovider" id="user-provider"></span>
+      </div>
+      <button class="logout-btn" onclick="location.href='/dashboard'" title="Dashboard & API key">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+        </svg>
+      </button>
+      <button class="logout-btn" onclick="location.href='/auth/logout'" title="Logout">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
+        </svg>
+      </button>
+    </div>
+    <button class="hbg" id="hbg" onclick="toggleSidebar()">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M3 12h18M3 6h18M3 18h18"/>
+      </svg>
+    </button>
+  </div>
 </header>
 
 <div class="layout">
@@ -262,6 +288,19 @@ function hasAuth(op) {
 }
 
 async function init() {
+  fetch('/auth/me').then(r => r.ok ? r.json() : null).then(d => {
+    if (!d?.user) return
+    const u = d.user
+    document.getElementById('user-name').textContent = u.name || u.email || 'user'
+    document.getElementById('user-provider').textContent = u.planLabel || u.provider || ''
+    const img = document.getElementById('user-avatar')
+    if (u.avatar) img.src = u.avatar
+    else img.src = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%238b5cf6"><circle cx="12" cy="12" r="12"/><text x="12" y="16" font-size="10" text-anchor="middle" fill="%23fff" font-family="sans-serif">' + (u.name || 'U')[0].toUpperCase() + '</text></svg>')
+    document.getElementById('user-chip').style.display = 'flex'
+    const ki = document.getElementById('apikey-input')
+    if (u.apiKey && ki && !ki.value) { ki.value = u.apiKey; if (current) updateCurl() }
+  }).catch(() => {})
+
   spec = await fetch('/openapi.json').then(r => r.json())
   document.getElementById('ver').textContent = 'v' + spec.info.version
   const hasAnyAuth = Object.values(spec.paths).some(m => Object.values(m).some(op => hasAuth(op)))

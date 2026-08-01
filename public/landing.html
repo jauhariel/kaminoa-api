@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kaminoa API — REST API Collection</title>
+<meta name="description" content="Kumpulan REST API siap pakai: downloader, AI, tools, search, dan lainnya. Login, ambil API key, langsung gas.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:      #07070b;
+  --bg3:     #14141d;
+  --bg4:     #1b1b27;
+  --border:  #20202e;
+  --border2: #2a2a3d;
+  --primary: #8b5cf6;
+  --primary2:#ec4899;
+  --pri-dim: #8b5cf61f;
+  --grad:    linear-gradient(120deg,#8b5cf6,#ec4899);
+  --text:    #e4e7f5;
+  --muted:   #6b7194;
+  --green:   #22c55e;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);position:relative;overflow-x:hidden}
+body::before{content:"";position:fixed;inset:-30%;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(38% 42% at 18% 12%, #8b5cf640 0%, transparent 60%),
+    radial-gradient(34% 40% at 88% 8%,  #ec489933 0%, transparent 60%),
+    radial-gradient(40% 46% at 78% 92%, #6366f133 0%, transparent 62%);
+  filter:blur(36px);animation:drift 22s ease-in-out infinite alternate}
+body::after{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+  background-image:linear-gradient(#ffffff05 1px,transparent 1px),linear-gradient(90deg,#ffffff05 1px,transparent 1px);
+  background-size:44px 44px;mask-image:radial-gradient(circle at 50% 20%,#000 0%,transparent 78%)}
+@keyframes drift{0%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(2%,-2%,0) scale(1.06)}100%{transform:translate3d(-2%,2%,0) scale(1.02)}}
+.wrap{position:relative;z-index:1;max-width:960px;margin:0 auto;padding:0 20px}
+
+/* ── Header ── */
+header{position:sticky;top:0;z-index:20;background:rgba(7,7,11,.7);backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%);border-bottom:1px solid var(--border)}
+header .wrap{display:flex;align-items:center;gap:10px;height:58px}
+.logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:15.5px;letter-spacing:-.3px;background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;text-decoration:none}
+.logo-dot{width:9px;height:9px;background:var(--grad);border-radius:50%;box-shadow:0 0 0 0 #8b5cf6aa;animation:pulse 2.4s ease-out infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 #8b5cf680}70%{box-shadow:0 0 0 7px #8b5cf600}100%{box-shadow:0 0 0 0 #8b5cf600}}
+.nav{margin-left:auto;display:flex;align-items:center;gap:6px}
+.nav a{font-size:13px;font-weight:600;color:var(--muted);text-decoration:none;padding:8px 12px;border-radius:9px;transition:.14s}
+.nav a:hover{color:var(--text)}
+.nav .cta{background:var(--grad);color:#fff!important;padding:8px 16px;box-shadow:0 4px 16px #8b5cf640}
+.nav .cta:hover{transform:translateY(-1px)}
+
+/* ── Hero ── */
+.hero{text-align:center;padding:84px 0 60px}
+.pill{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:#c4b5fd;background:var(--pri-dim);border:1px solid #8b5cf640;border-radius:100px;padding:6px 14px;margin-bottom:22px}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+h1{font-size:clamp(34px,6vw,54px);font-weight:800;letter-spacing:-1.5px;line-height:1.08;margin-bottom:18px}
+h1 .grad{background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.hero p{font-size:16px;color:var(--muted);max-width:540px;margin:0 auto 30px;line-height:1.7}
+.hero-btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:600;text-decoration:none;border-radius:12px;padding:13px 24px;transition:.15s;cursor:pointer;border:1px solid var(--border2)}
+.btn-main{background:var(--grad);color:#fff;border:none;box-shadow:0 8px 28px #8b5cf645}
+.btn-main:hover{transform:translateY(-2px);box-shadow:0 12px 34px #8b5cf655}
+.btn-ghost{background:rgba(20,20,29,.7);color:var(--text)}
+.btn-ghost:hover{border-color:var(--primary)}
+.stats{display:flex;gap:0;justify-content:center;margin-top:52px;border:1px solid var(--border);border-radius:16px;background:rgba(12,12,18,.6);backdrop-filter:blur(12px);overflow:hidden;max-width:560px;margin-left:auto;margin-right:auto}
+.stat{flex:1;padding:18px 10px;text-align:center}
+.stat+.stat{border-left:1px solid var(--border)}
+.stat b{display:block;font-size:24px;font-weight:800;font-family:'JetBrains Mono',monospace;background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.stat span{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+
+/* ── Sections ── */
+section{padding:56px 0}
+.sec-title{font-size:26px;font-weight:800;letter-spacing:-.8px;text-align:center;margin-bottom:8px}
+.sec-sub{font-size:14px;color:var(--muted);text-align:center;margin-bottom:36px}
+
+/* categories */
+.cats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+.cat{background:rgba(18,18,27,.72);border:1px solid var(--border);border-radius:14px;padding:18px;transition:.15s}
+.cat:hover{border-color:var(--primary);transform:translateY(-2px)}
+.cat .ic{width:36px;height:36px;border-radius:10px;background:var(--pri-dim);border:1px solid #8b5cf635;display:flex;align-items:center;justify-content:center;margin-bottom:12px;color:#a78bfa}
+.cat h3{font-size:14px;font-weight:700;margin-bottom:3px}
+.cat span{font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace}
+
+/* steps */
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.step{background:rgba(18,18,27,.72);border:1px solid var(--border);border-radius:14px;padding:22px;position:relative}
+.step .n{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--primary);margin-bottom:12px;display:inline-block;background:var(--pri-dim);border:1px solid #8b5cf635;border-radius:8px;padding:4px 10px}
+.step h3{font-size:15px;font-weight:700;margin-bottom:6px}
+.step p{font-size:13px;color:var(--muted);line-height:1.6}
+.step p code{background:var(--bg4);border:1px solid var(--border2);border-radius:5px;padding:1px 6px;font-size:11.5px;font-family:'JetBrains Mono',monospace}
+
+/* terminal */
+.term{background:#0a0a10;border:1px solid var(--border);border-radius:14px;overflow:hidden;max-width:640px;margin:0 auto;box-shadow:0 20px 50px #00000044}
+.term-bar{display:flex;align-items:center;gap:6px;padding:11px 14px;border-bottom:1px solid var(--border);background:rgba(20,20,29,.6)}
+.term-bar i{width:11px;height:11px;border-radius:50%;display:block}
+.term-bar i:nth-child(1){background:#ef4444}
+.term-bar i:nth-child(2){background:#f59e0b}
+.term-bar i:nth-child(3){background:#22c55e}
+.term-bar span{margin-left:8px;font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace}
+.term pre{padding:18px;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.75;overflow-x:auto;color:#a5b4fc}
+.term .c{color:#4b5269}
+.term .k{color:#f0abfc}
+.term .s{color:#86efac}
+
+/* pricing */
+.plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;max-width:640px;margin:0 auto}
+.plan{background:rgba(18,18,27,.72);border:1px solid var(--border);border-radius:16px;padding:26px;position:relative}
+.plan.hot{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary) inset,0 16px 40px #8b5cf622}
+.plan .tag{position:absolute;top:-11px;right:18px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;background:var(--grad);color:#fff;border-radius:100px;padding:4px 12px}
+.plan h3{font-size:16px;font-weight:700}
+.plan .price{font-size:34px;font-weight:800;margin:14px 0 2px;font-family:'JetBrains Mono',monospace}
+.plan .price small{font-size:13px;color:var(--muted);font-weight:500;font-family:'Inter',sans-serif}
+.plan .lim{font-size:13px;color:#c4b5fd;font-weight:600;margin-bottom:16px}
+.plan ul{list-style:none;display:flex;flex-direction:column;gap:9px;margin-bottom:22px}
+.plan li{font-size:13px;color:var(--muted);display:flex;gap:9px;align-items:center}
+.plan li svg{color:var(--green);flex-shrink:0}
+.plan .btn{width:100%;justify-content:center}
+
+/* footer */
+footer{border-top:1px solid var(--border);padding:26px 0 34px;text-align:center;font-size:12.5px;color:var(--muted)}
+footer a{color:#a78bfa;text-decoration:none}
+@media(max-width:560px){.hero{padding:60px 0 44px}.stats{flex-direction:column}.stat+.stat{border-left:none;border-top:1px solid var(--border)}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <a class="logo" href="/"><div class="logo-dot"></div>Kaminoa API</a>
+    <nav class="nav">
+      <a href="/docs">Docs</a>
+      <a class="cta" id="nav-cta" href="/login">Login</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="hero">
+    <div class="pill"><span class="dot"></span><span id="pill-text">REST API Collection</span></div>
+    <h1>Satu API key,<br><span class="grad">semua endpoint.</span></h1>
+    <p>Kumpulan REST API siap pakai — downloader, AI, tools, search, dan lainnya. Login pakai Google, ambil API key pribadimu, langsung integrasi.</p>
+    <div class="hero-btns">
+      <a class="btn btn-main" id="hero-cta" href="/login">
+        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="#fff" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z" opacity=".9"/></svg>
+        Mulai dengan Google
+      </a>
+      <a class="btn btn-ghost" href="/docs">Lihat Dokumentasi →</a>
+    </div>
+    <div class="stats">
+      <div class="stat"><b id="st-eps">—</b><span>Endpoint</span></div>
+      <div class="stat"><b id="st-cats">—</b><span>Kategori</span></div>
+      <div class="stat"><b>24/7</b><span>Online</span></div>
+    </div>
+  </div>
+
+  <section>
+    <h2 class="sec-title">Kategori Endpoint</h2>
+    <p class="sec-sub">Semua kena kuota harian yang sama — satu key untuk semuanya.</p>
+    <div class="cats" id="cats"></div>
+  </section>
+
+  <section>
+    <h2 class="sec-title">Cara Pakai</h2>
+    <p class="sec-sub">Tiga langkah, kurang dari semenit.</p>
+    <div class="steps">
+      <div class="step">
+        <span class="n">01</span>
+        <h3>Login Google</h3>
+        <p>Klik tombol mulai, login pakai akun Google. Akun API kamu langsung dibuat otomatis.</p>
+      </div>
+      <div class="step">
+        <span class="n">02</span>
+        <h3>Ambil API Key</h3>
+        <p>Buka <code>/dashboard</code>, salin API key pribadimu. Satu key untuk semua endpoint.</p>
+      </div>
+      <div class="step">
+        <span class="n">03</span>
+        <h3>Panggil API</h3>
+        <p>Kirim key di header <code>x-api-key</code> setiap request. Cek sisa kuota di dashboard.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="term">
+      <div class="term-bar"><i></i><i></i><i></i><span>terminal</span></div>
+<pre><span class="c"># contoh request</span>
+curl "<span id="origin">https://api.kamu.com</span>/ai/chatgpt?text=halo" \
+  -H "<span class="k">x-api-key</span>: <span class="s">kmn_xxxxxxxxxxxx</span>"
+
+<span class="c"># respons kuota ada di header setiap respons</span>
+<span class="k">X-RateLimit-Limit</span>: 100
+<span class="k">X-RateLimit-Remaining</span>: 99</pre>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="sec-title">Harga</h2>
+    <p class="sec-sub">Mulai gratis, upgrade kalau butuh lebih.</p>
+    <div class="plans" id="plans"></div>
+  </section>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    Kaminoa API — dibuat oleh <a href="https://github.com/jauhariel" target="_blank" rel="noopener">kamino</a> · <a href="/docs">Dokumentasi</a>
+  </div>
+</footer>
+
+<script>
+const ICONS = {
+  Downloader: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>',
+  Tools: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>',
+  Search: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>',
+  AI: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 2.4-1.2 4.5-3 5.7V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.3c-1.8-1.3-3-3.4-3-5.7a7 7 0 0 1 7-7zM9 22h6"/></svg>',
+  Islamic: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
+  Maker: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
+  _default: '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>'
+}
+const CHECK = '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>'
+const fmt = n => Number(n).toLocaleString('id-ID')
+
+document.getElementById('origin').textContent = location.origin
+
+// Sesuaikan CTA kalau sudah login
+fetch('/auth/me').then(r => r.ok ? r.json() : null).then(d => {
+  if (!d?.user) return
+  document.getElementById('nav-cta').textContent = 'Dashboard'
+  document.getElementById('nav-cta').href = '/dashboard'
+  const hero = document.getElementById('hero-cta')
+  hero.textContent = 'Buka Dashboard →'
+  hero.href = '/dashboard'
+}).catch(() => {})
+
+// Statistik & harga live
+fetch('/api/stats').then(r => r.json()).then(d => {
+  document.getElementById('st-eps').textContent = d.endpoints + '+'
+  document.getElementById('st-cats').textContent = d.categories.length
+  document.getElementById('pill-text').textContent = d.endpoints + '+ endpoint siap pakai'
+
+  document.getElementById('cats').innerHTML = d.categories.map(c => `
+    <div class="cat">
+      <div class="ic">${ICONS[c.name] || ICONS._default}</div>
+      <h3>${c.name}</h3>
+      <span>${c.count} endpoint</span>
+    </div>`).join('')
+
+  const plans = d.plans || {}
+  document.getElementById('plans').innerHTML = `
+    <div class="plan">
+      <h3>Free</h3>
+      <div class="price">Rp0<small> /selamanya</small></div>
+      <div class="lim">${fmt(plans.free?.dailyLimit || 100)} request / hari</div>
+      <ul>
+        <li>${CHECK} Semua endpoint & kategori</li>
+        <li>${CHECK} API key pribadi</li>
+        <li>${CHECK} Dashboard pemakaian</li>
+        <li>${CHECK} Kuota reset tiap 00:00</li>
+      </ul>
+      <a class="btn btn-ghost" href="/login">Mulai Gratis</a>
+    </div>
+    <div class="plan hot">
+      <span class="tag">Populer</span>
+      <h3>Pro</h3>
+      <div class="price">Rp${fmt(d.proPrice || 10000)}<small> / ${d.proDurationDays || 30} hari</small></div>
+      <div class="lim">${fmt(plans.pro?.dailyLimit || 5000)} request / hari</div>
+      <ul>
+        <li>${CHECK} Semua benefit Free</li>
+        <li>${CHECK} Kuota ${fmt((plans.pro?.dailyLimit || 5000) / (plans.free?.dailyLimit || 100))}× lebih besar</li>
+        <li>${CHECK} Prioritas support</li>
+      </ul>
+      <a class="btn btn-main" href="/dashboard">Upgrade ke Pro</a>
+    </div>`
+}).catch(() => {
+  document.getElementById('st-eps').textContent = '100+'
+  document.getElementById('st-cats').textContent = '6'
+})
+</script>
+
+</body>
+</html>
