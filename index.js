@@ -36,6 +36,18 @@ class JSONFileStore extends session.Store {
                 }
             }
         } catch { /* abaikan file corrupt */ }
+        // Sweeper: buang sesi expired tiap jam biar RAM & file tidak menumpuk.
+        this._sweeper = setInterval(() => this._sweep(), 60 * 60 * 1000)
+        this._sweeper.unref?.()
+    }
+    _sweep() {
+        const now = Date.now()
+        let n = 0
+        for (const [sid, sess] of this.sessions) {
+            const exp = sess?.cookie?.expires
+            if (exp && new Date(exp).getTime() < now) { this.sessions.delete(sid); n++ }
+        }
+        if (n) { this._save(); console.log(`[auth] Sweeper: ${n} sesi expired dibersihkan`) }
     }
     get(sid, cb) {
         const sess = this.sessions.get(sid)
@@ -75,7 +87,7 @@ app.use(session({
     secret: SESSION_SECRET || crypto.randomBytes(32).toString("hex"),
     resave: false,
     saveUninitialized: false,
-    store: new JSONFileStore(path.join(__dirname, ".sessions.json")),
+    store: new JSONFileStore(path.join(__dirname, "data", "sessions.json")),
     cookie: { httpOnly: true, secure: "auto", maxAge: 7 * 24 * 60 * 60 * 1000 } // 7 hari
 }))
 app.use(passport.initialize())

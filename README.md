@@ -193,10 +193,11 @@ Alurnya: dashboard bikin tagihan QRIS (`POST /pay/create`) → user scan → ser
 Catatan:
 - Dashboard user (`/dashboard`): lihat profil, plan, sisa kuota, salin & regenerate API key.
 - Master `API_KEY` di `.env` bersifat **tanpa limit** — simpan baik-baik, jangan dibagikan.
-- Data user, kuota, admin keys & pembayaran tersimpan di `data.sqlite` (SQLite bawaan Node via `node:sqlite`, tanpa dependency tambahan). Jangan di-commit.
+- Data user, kuota, admin keys & pembayaran tersimpan di `data/data.sqlite` (SQLite bawaan Node via `node:sqlite`, tanpa dependency tambahan). Jangan di-commit.
+- Semua runtime state ada di folder `data/` — untuk backup cukup salin folder `data/` + file `.env`.
 - Migrasi dari format lama: kalau sebelumnya pakai `.users.json` / `.payments.json`, isinya otomatis diimpor ke SQLite saat pertama jalan (file lama disimpan sebagai `*.json.bak`).
 - Logout lewat tombol di pojok kanan atas docs, atau buka `/auth/logout`.
-- Sesi tersimpan di `.sessions.json` (tahan restart) dan berlaku 7 hari.
+- Sesi tersimpan di `data/sessions.json` (tahan restart) dan berlaku 7 hari.
 
 ## Konfigurasi
 

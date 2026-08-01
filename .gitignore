@@ -1,10 +1,11 @@
 .env
 node_modules/
 package-lock.json
-.sessions.json
 
-# Database SQLite (termasuk file WAL) & sisa format JSON lama
-data.sqlite*
+# Semua runtime state: database SQLite (termasuk file WAL) + sessions.json
+data/
+
+# Sisa format JSON lama
 .users.json
 .payments.json
 *.json.bak
