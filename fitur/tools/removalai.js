@@ -5,6 +5,8 @@
 import axios from "axios"
 import crypto from "crypto"
 import fs from "fs"
+import os from "os"
+import path from "path"
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
 const BASE_HEADERS = {
@@ -49,7 +51,7 @@ async function downloadImage(url) {
     const buf = Buffer.from(await res.arrayBuffer())
     let name = "image.png"
     try { name = decodeURIComponent(new URL(url).pathname.split("/").filter(Boolean).pop() || name) } catch {}
-    const tmpPath = `/tmp/removalai_${Date.now()}_${name}`
+    const tmpPath = path.join(os.tmpdir(), `removalai_${Date.now()}_${name}`)
     fs.writeFileSync(tmpPath, buf)
     return tmpPath
 }

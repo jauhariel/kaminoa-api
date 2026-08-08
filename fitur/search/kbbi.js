@@ -18,7 +18,7 @@ function parsePOS(el) {
     return { label, full: title }
 }
 
-async function searchKBBI(query, source = "kemendikdasmen") {
+async function searchKBBI(query, source = "web") {
     const url = source === "web"
         ? `https://kbbi.web.id/${encodeURIComponent(query)}`
         : `https://kbbi.kemendikdasmen.go.id/entri/${encodeURIComponent(query)}`
@@ -227,8 +227,8 @@ export default {
                 name: "source",
                 in: "query",
                 required: false,
-                description: "Sumber data KBBI (default: kemendikdasmen)",
-                schema: { type: "string", enum: ["kemendikdasmen", "web"], default: "kemendikdasmen" }
+                description: "Sumber data KBBI (default: web, karena kemendikdasmen sering membatasi akses)",
+                schema: { type: "string", enum: ["kemendikdasmen", "web"], default: "web" }
             }
         ],
         responses: {
@@ -278,7 +278,7 @@ export default {
 
     handler: async (req, res) => {
         const q = (req.query.q || "").trim()
-        const source = req.query.source || "kemendikdasmen"
+        const source = req.query.source || "web"
         if (!q) return res.status(400).json({ ok: false, error: "parameter q wajib diisi" })
 
         const trySource = async (src) => {
@@ -305,9 +305,10 @@ export default {
             if (source === "web") {
                 result = await trySource("web")
             } else {
-                // coba kemendikdasmen dulu, fallback ke web kalo gagal
+                // coba kemendikdasmen dulu, fallback ke web kalo gagal / dibatasi (Moda Terbatas)
                 try {
                     result = await trySource("kemendikdasmen")
+                    if (!result.entries.length) result = await trySource("web")
                 } catch (err) {
                     if (err.statusCode === 404) {
                         // fallback ke kbbi.web.id
